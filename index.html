@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>SwipeWatch - Disney Content Discovery</title>
+    <link rel="stylesheet" href="styles.css?v=1.3">
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-0SFL3RGC0H"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-0SFL3RGC0H');
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>SwipeWatch</h1>
+            <p class="subtitle">Discover Your Next Favorite</p>
+
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+
+            <!-- Counter -->
+            <div class="counter" id="counter">
+                <span id="current-card">1</span> / <span id="total-cards">30</span>
+            </div>
+        </header>
+
+        <!-- Main Card Stack -->
+        <div class="card-container">
+            <div id="card-stack">
+                <!-- Cards will be dynamically inserted here -->
+            </div>
+
+            <!-- Action indicators -->
+            <div class="swipe-indicator nope">NOPE</div>
+            <div class="swipe-indicator like">LIKE</div>
+            <div class="swipe-indicator super">Watchlist</div>
+        </div>
+
+        <!-- Onboarding Overlay -->
+        <div id="onboarding" class="onboarding">
+            <div class="onboarding-content">
+                <h2>Welcome to SwipeWatch!</h2>
+                <p class="onboarding-subtitle">Discover your next favorite Disney content</p>
+
+                <div class="onboarding-steps">
+                    <div class="onboarding-step">
+                        <div class="onboarding-icon swipe-right">
+                            <svg viewBox="0 0 24 24" width="40" height="40">
+                                <path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                        </div>
+                        <h3>Swipe Right</h3>
+                        <p>Get more recommendations like this</p>
+                    </div>
+
+                    <div class="onboarding-step">
+                        <div class="onboarding-icon swipe-left">
+                            <svg viewBox="0 0 24 24" width="40" height="40">
+                                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                            </svg>
+                        </div>
+                        <h3>Swipe Left</h3>
+                        <p>Remove from recommendations</p>
+                    </div>
+
+                    <div class="onboarding-step">
+                        <div class="onboarding-icon swipe-up">
+                            <svg viewBox="0 0 24 24" width="40" height="40">
+                                <path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                            </svg>
+                        </div>
+                        <h3>Swipe Up</h3>
+                        <p>Add to your watchlist</p>
+                    </div>
+                </div>
+
+                <button id="start-btn" class="start-btn">Start Swiping</button>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons">
+            <button class="action-btn dislike" id="dislike-btn" title="Show fewer like this">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+            </button>
+            <button class="action-btn super" id="super-btn" title="Add to main watchlist">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                </svg>
+            </button>
+            <button class="action-btn like" id="like-btn" title="Add to training watchlist">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- End Screen -->
+        <div id="end-screen" class="end-screen hidden">
+            <div class="end-screen-content">
+                <h2>That's All for Now!</h2>
+                <p>You've seen all available content</p>
+
+                <!-- Disney Coins Earned -->
+                <div class="disney-dollars">
+                    <img src="disney-coin.png" alt="Disney Coin" class="dollar-image">
+                    <div class="dollar-count">
+                        <span class="dollar-amount" id="total-swipes">0</span>
+                        <span class="dollar-label">Disney Coins Earned</span>
+                    </div>
+                </div>
+
+                <!-- Stats Summary -->
+                <div class="end-stats">
+                    <div class="end-stat-item">
+                        <span class="end-stat-number" id="end-liked-count">0</span>
+                        <span class="end-stat-label">Liked</span>
+                    </div>
+                    <div class="end-stat-item">
+                        <span class="end-stat-number" id="end-super-count">0</span>
+                        <span class="end-stat-label">Super Liked</span>
+                    </div>
+                    <div class="end-stat-item">
+                        <span class="end-stat-number" id="end-disliked-count">0</span>
+                        <span class="end-stat-label">Passed</span>
+                    </div>
+                </div>
+
+                <button id="restart-btn" class="restart-btn">Start Over</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=1.3"></script>
+</body>
+</html>
