@@ -213,7 +213,7 @@ SwipeWatch/
 ├── README.md           # This file
 ├── RIPCUT_GUIDE.md     # Disney RipCut image system documentation
 ├── POSTER_GUIDE.md     # Poster format specifications
-└── CLAUDE.md           # AI assistant project context
+└── AGENTS.md           # AI assistant project context
 ```
 
 ## Technical Details
