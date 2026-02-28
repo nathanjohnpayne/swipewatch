@@ -9,12 +9,12 @@ Each Disney+ content item has two separate images composited together:
 1. **Background Image**: The main poster artwork (vertical format)
 2. **Title Treatment**: The logo/title overlay positioned at the bottom
 
-### Hulu Content — Standard Art (16:9 Letterbox)
+### Hulu Content—Standard Art (16:9 Letterbox)
 Hulu standard art content uses a single horizontal image with a mood-matched gradient background:
 1. **Background Image**: 16:9 aspect ratio artwork
 2. **No titleImage**: Title displayed via gradient fallback or info section
 
-### Hulu Content — Poster Vertical (with Title Treatment)
+### Hulu Content—Poster Vertical (with Title Treatment)
 Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ format:
 1. **Background Image**: Vertical poster artwork
 2. **Title Treatment**: Logo/title overlay positioned at the bottom
@@ -82,7 +82,7 @@ Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ form
 
 ## URL Parameters Explained
 
-### Disney+ Background Image — Classic (IDs 16-30)
+### Disney+ Background Image—Classic (IDs 16-30)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=jpeg&label=poster_vertical_080&width=381
 ```
@@ -92,7 +92,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `label=poster_vertical_080` - Image label for vertical poster format
 - `width=381` - Image width in pixels (1080p standard)
 
-### Disney+ Background Image — Modern (IDs 1-10)
+### Disney+ Background Image—Modern (IDs 1-10)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=poster_vertical_080&width=800
 ```
@@ -106,7 +106,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `poster_vertical_080` - Standard Disney+ content
 - `poster_vertical_disney-original_080` - Disney+ Original series (e.g., Dancing with the Stars, Animals Up Close)
 
-### Hulu Background Image — Standard Art (IDs 101-115)
+### Hulu Background Image—Standard Art (IDs 101-115)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=standard_art_178&width=800
 ```
@@ -123,7 +123,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `standard_art_hulu-original-series_178` - Hulu Originals 16:9 art (Mormon Wives, Tell Me Lies, etc.)
 - `standard_art_cartoon-network_178` - Cartoon Network (Amazing World of Gumball)
 
-### Hulu Background Image — Poster Vertical (IDs 116-120)
+### Hulu Background Image—Poster Vertical (IDs 116-120)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800
 ```
@@ -133,7 +133,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `label=poster_vertical_hulu-original-series_080` - Hulu Original vertical poster label
 - `width=800` - Full width for quality display
 
-### Title Treatment Image — Classic (IDs 16-30)
+### Title Treatment Image—Classic (IDs 16-30)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/trim?max=339|162
 ```
@@ -141,7 +141,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 **Parameters:**
 - `max=339|162` - Max width|height in pixels (maintains aspect ratio)
 
-### Title Treatment Image — Modern (IDs 1-10, 116-120)
+### Title Treatment Image—Modern (IDs 1-10, 116-120)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/trim?format=webp&max=800%7C450
 ```
@@ -165,7 +165,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 
 ## Complete Examples
 
-### Disney+ Classic — Beauty and the Beast (ID 16)
+### Disney+ Classic—Beauty and the Beast (ID 16)
 ```javascript
 {
     id: 16,
@@ -180,7 +180,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 }
 ```
 
-### Disney+ Modern — Ocean with David Attenborough (ID 1)
+### Disney+ Modern—Ocean with David Attenborough (ID 1)
 ```javascript
 {
     id: 1,
@@ -195,7 +195,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 }
 ```
 
-### Hulu Standard Art — Abbott Elementary (ID 104)
+### Hulu Standard Art—Abbott Elementary (ID 104)
 ```javascript
 {
     id: 104,
@@ -209,7 +209,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 }
 ```
 
-### Hulu Poster Vertical — Only Murders in the Building (ID 117)
+### Hulu Poster Vertical—Only Murders in the Building (ID 117)
 ```javascript
 {
     id: 117,

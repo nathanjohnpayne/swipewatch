@@ -209,6 +209,61 @@ const contentData = [
         year: "2017",
         genres: "Drama, Thriller, Hulu Original"
     },
+    {
+        id: 121,
+        title: "The Bear",
+        type: "Hulu Original Series",
+        description: "A young chef from the fine dining world returns home to run his family's sandwich shop in Chicago, transforming both the restaurant and himself.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/b2644080-ca0c-43ce-9a9a-d525cfb4b40a/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/7086e502-e77d-4920-ba01-a7ca205eae9f/trim?format=webp&max=800%7C450",
+        color: "#b91c1c",
+        year: "2022",
+        genres: "Drama, Comedy, Hulu Original"
+    },
+    {
+        id: 122,
+        title: "Love Story: John F. Kennedy Jr. & Carolyn Bessette",
+        type: "Hulu Original Series",
+        description: "The captivating and tragic love story of JFK Jr. and Carolyn Bessette, chronicling their romance under the relentless spotlight of fame.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c57d8-98c3-7e0c-8698-6cd30b5533fa/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019bb9cf-0097-7813-9986-5adddeb8dde5/trim?format=webp&max=800%7C450",
+        color: "#7f1d1d",
+        year: "2026",
+        genres: "Drama, Romance, Hulu Original"
+    },
+    {
+        id: 123,
+        title: "The Americans",
+        type: "Series",
+        description: "Two KGB spies pose as an ordinary American couple during the Cold War while raising their children in suburban Washington, D.C.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8662aa5f-eafd-4322-88f6-0128e7c61565/compose?format=webp&label=poster_vertical_fx_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/42a94b55-5fa9-4811-9e37-634f31ca36f7/trim?format=webp&max=800%7C450",
+        color: "#7f1d1d",
+        year: "2013",
+        genres: "Drama, History, FX"
+    },
+    {
+        id: 124,
+        title: "Mid-Century Modern",
+        type: "Hulu Original Series",
+        description: "A comedy series exploring the lives and relationships of a group of friends navigating love, loss, and reinvention in Palm Springs.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/6ff479da-e907-47e4-8b19-feecb02272b8/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/27f9590d-0010-4de9-ac47-d022a5bde646/trim?format=webp&max=800%7C450",
+        color: "#c2410c",
+        year: "2025",
+        genres: "Comedy, Hulu Original"
+    },
+    {
+        id: 125,
+        title: "Best Medicine",
+        type: "Series",
+        description: "Doctors navigate life-and-death decisions and personal challenges at a prestigious hospital in this gripping medical drama.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b482c-1e87-74ba-9c36-72f3df6d6842/compose?format=webp&label=poster_vertical_fox_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b482b-8cb7-7c4e-8f33-eb643e2f9bea/trim?format=webp&max=800%7C450",
+        color: "#1e40af",
+        year: "2026",
+        genres: "Drama, Medical, FOX"
+    },
     // Disney+ Content
     {
         id: 1,
@@ -484,6 +539,83 @@ const contentData = [
         color: "#166534",
         year: "2015",
         genres: "Animals & Nature, Docuseries"
+    },
+    {
+        id: 11,
+        title: "The Beatles: Get Back",
+        type: "Disney+ Original Series",
+        description: "Peter Jackson's documentary chronicles the making of the Beatles' final album, capturing the creative process and interpersonal dynamics of the legendary band.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/d76deaab-f00e-490f-9e19-876cbf945aa5/compose?format=webp&label=poster_vertical_disney-original_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/510189b7-f82a-48cb-92a7-2cd4f11918a6/trim?format=webp&max=800%7C450",
+        color: "#4a3728",
+        year: "2021",
+        genres: "History, Music"
+    },
+    {
+        id: 12,
+        title: "Tucci in Italy",
+        type: "Series",
+        description: "Stanley Tucci explores Italy's diverse regions, discovering the history, culture, and flavors behind the country's most beloved dishes.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b3169-dde0-725d-9c5e-d315311bc0ae/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b3169-d6fd-7329-978e-e80f43499874/trim?format=webp&max=800%7C450",
+        color: "#d97706",
+        year: "2025",
+        genres: "Lifestyle, Docuseries"
+    },
+    {
+        id: 13,
+        title: "Incas: The Rise and Fall",
+        type: "Series",
+        description: "The epic story of the Inca Empire, from its remarkable rise to its dramatic fall, told through archaeological discoveries and expert insights.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c0793-aa41-7606-8f5b-9891e79e91db/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c0793-b6d2-74d3-92c2-4c983f591b6e/trim?format=webp&max=800%7C450",
+        color: "#92400e",
+        year: "2025",
+        genres: "History, Docuseries"
+    },
+    {
+        id: 14,
+        title: "The Suspicions of Mr Whicher",
+        type: "Series",
+        description: "A detective investigates a shocking murder in a Victorian English country house, uncovering dark secrets beneath a respectable facade.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/d36a6da8-4b42-48c3-b101-21900def0b97/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/40058f57-82f7-43b6-9828-02cb64f9dcfc/trim?format=webp&max=800%7C450",
+        color: "#374151",
+        year: "2013",
+        genres: "Drama, History"
+    },
+    {
+        id: 15,
+        title: "Fringe",
+        type: "Series",
+        description: "An FBI agent, a genius scientist, and his son investigate a series of unexplained phenomena linked to a parallel universe.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ae117-e358-78f3-a902-79ce25e856c7/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ae118-6334-732d-ae52-dfced5d93998/trim?format=webp&max=800%7C450",
+        color: "#1e3a5f",
+        year: "2008",
+        genres: "Drama, Adventure"
+    },
+    {
+        id: 31,
+        title: "Strangest Things",
+        type: "Series",
+        description: "A deep dive into history's most bizarre and unexplained events, artifacts, and phenomena that continue to baffle experts.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/61fb3af1-9559-4d37-89dd-c5eca447b8b4/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8d59b9f8-e79b-4f7e-828a-d42d7affe139/trim?format=webp&max=800%7C450",
+        color: "#4c1d95",
+        year: "2025",
+        genres: "History, Docuseries"
+    },
+    {
+        id: 32,
+        title: "Modern Family",
+        type: "Series",
+        description: "Three interconnected families navigate the challenges and hilarity of modern life in this mockumentary-style comedy.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c4f26-89c8-7599-bd64-3827b4c0df3b/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/2b85340f-a4df-4677-a27c-7f991950b31a/trim?format=webp&max=800%7C450",
+        color: "#059669",
+        year: "2009",
+        genres: "Sitcom, Comedy"
     }
 ];
 

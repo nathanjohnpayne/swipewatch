@@ -69,9 +69,9 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 - Ensures users see all content before repeats
 
 ### Swipe Actions
-- **Left swipe** (Dislike): Remove from recommendations — requires 100px horizontal drag
-- **Right swipe** (Like): Get more recommendations like this — requires 100px horizontal drag
-- **Up swipe** (Super Like): Add to your watchlist — requires 100px vertical drag
+- **Left swipe** (Dislike): Remove from recommendations—requires 100px horizontal drag
+- **Right swipe** (Like): Get more recommendations like this—requires 100px horizontal drag
+- **Up swipe** (Super Like): Add to your watchlist—requires 100px vertical drag
 - Visual indicators appear at 50px drag distance
 
 ### Controls
@@ -90,7 +90,7 @@ The end screen displays:
 
 ## Content Structure
 
-### Disney+ Content — Classic Format (IDs 16-30)
+### Disney+ Content—Classic Format (IDs 16-30)
 ```javascript
 {
     id: 16,
@@ -105,7 +105,7 @@ The end screen displays:
 }
 ```
 
-### Disney+ Content — Modern Format (IDs 1-10)
+### Disney+ Content—Modern Format (IDs 1-10)
 ```javascript
 {
     id: 1,
@@ -120,7 +120,7 @@ The end screen displays:
 }
 ```
 
-### Hulu Content — Standard Art Letterbox (IDs 101-115)
+### Hulu Content—Standard Art Letterbox (IDs 101-115)
 ```javascript
 {
     id: 103,
@@ -134,7 +134,7 @@ The end screen displays:
 }
 ```
 
-### Hulu Content — Poster Vertical (IDs 116-120)
+### Hulu Content—Poster Vertical (IDs 116-120)
 ```javascript
 {
     id: 117,
@@ -230,7 +230,7 @@ SwipeWatch/
 - **Indicator threshold**: 50px drag shows direction, 100px triggers action
 - **Card rotation**: Proportional to horizontal drag (`deltaX * 0.1` degrees)
 - **Animations**: CSS transitions with 300ms card exit
-- **Responsive**: Five breakpoints — 1024px (desktop), 768px (tablet), 480px (mobile), 360px (small mobile), 600px height + landscape
+- **Responsive**: Five breakpoints—1024px (desktop), 768px (tablet), 480px (mobile), 360px (small mobile), 600px height + landscape
 - **Session management**: localStorage for tracking shown content
 - **Fisher-Yates shuffle**: Random content ordering per session
 - **Progress tracking**: Real-time progress bar and counter

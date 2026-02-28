@@ -9,7 +9,7 @@ SwipeWatch is a Tinder-style web application for discovering Disney+ and Hulu co
 - **Frontend:** HTML5, CSS3, JavaScript (Vanilla - no frameworks)
 - **Backend:** None (static site)
 - **Hosting:** Firebase Hosting with CDN
-- **Analytics:** Google Analytics 4 (GA4) — Measurement ID `G-0SFL3RGC0H`
+- **Analytics:** Google Analytics 4 (GA4)—Measurement ID `G-0SFL3RGC0H`
 - **Build Process:** None required - static files only
 - **Asset Versioning:** Query params on CSS/JS (`?v=1.3`)
 
@@ -77,7 +77,7 @@ firebase deploy
 
 ### Data Model
 ```javascript
-// Disney+ content — classic format (IDs 16-30, with title treatment)
+// Disney+ content—classic format (IDs 16-30, with title treatment)
 {
     id: 16,
     title: "Beauty and the Beast",
@@ -90,7 +90,7 @@ firebase deploy
     genres: "Animation, Romance"
 }
 
-// Disney+ content — modern format (IDs 1-10, with title treatment)
+// Disney+ content—modern format (IDs 1-10, with title treatment)
 {
     id: 1,
     title: "Ocean with David Attenborough",
@@ -103,7 +103,7 @@ firebase deploy
     genres: "Documentaries, Animals & Nature"
 }
 
-// Hulu content — standard art letterbox (IDs 101-115)
+// Hulu content—standard art letterbox (IDs 101-115)
 {
     id: 101,
     title: "Family Guy",
@@ -115,7 +115,7 @@ firebase deploy
     genres: "Animation, Comedy"
 }
 
-// Hulu content — poster vertical (IDs 116-120, with title treatment)
+// Hulu content—poster vertical (IDs 116-120, with title treatment)
 {
     id: 116,
     title: "The Beauty",

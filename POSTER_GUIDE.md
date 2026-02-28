@@ -8,7 +8,7 @@ The app supports three image formats depending on content type:
 
 ### Disney+ Content (Vertical Posters with Title Treatment)
 
-Two parameter styles exist — modern (preferred for new content) and classic:
+Two parameter styles exist—modern (preferred for new content) and classic:
 
 **Modern format (IDs 1-10):**
 ```javascript
@@ -40,7 +40,7 @@ Two parameter styles exist — modern (preferred for new content) and classic:
 }
 ```
 
-### Hulu Content — Standard Art (16:9 Letterbox, IDs 101-115)
+### Hulu Content—Standard Art (16:9 Letterbox, IDs 101-115)
 ```javascript
 {
     id: 101,
@@ -54,7 +54,7 @@ Two parameter styles exist — modern (preferred for new content) and classic:
 }
 ```
 
-### Hulu Content — Poster Vertical (with Title Treatment, IDs 116-120)
+### Hulu Content—Poster Vertical (with Title Treatment, IDs 116-120)
 ```javascript
 {
     id: 116,
@@ -85,12 +85,12 @@ Two parameter styles exist — modern (preferred for new content) and classic:
 | Title `max` | `339\|162` | `800\|450` | N/A |
 
 **Network-specific label variants:**
-- `poster_vertical_disney-original_080` — Disney+ Originals
-- `poster_vertical_hulu-original-series_080` — Hulu Originals (poster)
-- `standard_art_abc_178` — ABC network
-- `standard_art_fox_178` — FOX network
-- `standard_art_hulu-original-series_178` — Hulu Originals (16:9)
-- `standard_art_cartoon-network_178` — Cartoon Network
+- `poster_vertical_disney-original_080`—Disney+ Originals
+- `poster_vertical_hulu-original-series_080`—Hulu Originals (poster)
+- `standard_art_abc_178`—ABC network
+- `standard_art_fox_178`—FOX network
+- `standard_art_hulu-original-series_178`—Hulu Originals (16:9)
+- `standard_art_cartoon-network_178`—Cartoon Network
 
 ## Option 2: Use Other External URLs
 
@@ -166,7 +166,7 @@ No background URL
   → Gradient-only card with text title
 ```
 
-This means you can mix formats freely in the `contentData` array — the rendering logic handles it automatically.
+This means you can mix formats freely in the `contentData` array—the rendering logic handles it automatically.
 
 ## Updating Colors
 
