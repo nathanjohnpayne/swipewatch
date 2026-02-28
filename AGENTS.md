@@ -11,14 +11,14 @@ Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu c
 - **Hosting:** Firebase Hosting with CDN
 - **Analytics:** Google Analytics 4 (GA4)—Measurement ID `G-0SFL3RGC0H`
 - **Build Process:** None required - static files only
-- **Asset Versioning:** Query params on CSS/JS (`?v=1.4`)
+- **Asset Versioning:** Query params on CSS/JS (`?v=1.5`)
 
 ## Project Structure
 ```
 Swipe Watch/
-├── index.html          # Main HTML structure with onboarding (150 lines)
-├── app.js              # Core application logic (1112 lines)
-├── styles.css          # All styling, animations, responsive design (1056 lines)
+├── index.html          # Main HTML structure with onboarding (162 lines)
+├── app.js              # Core application logic (1213 lines)
+├── styles.css          # All styling, animations, responsive design (1130 lines)
 ├── disney-coin.png     # Disney Coins reward image (used in end screen)
 ├── disney-dollar.jpg   # Unused asset (not referenced in code)
 ├── firebase.json       # Firebase Hosting config (no-cache headers, SPA rewrites)
@@ -139,7 +139,11 @@ firebase deploy
 - `shuffleArray(array)`: Fisher-Yates shuffle for random content ordering
 - `adjustColor(color, amount)`: Darken hex colors for gradient backgrounds
 - `updateProgress()`: Update progress bar width and progress label text
-- `showEndScreen()`: Display stats and Disney Coins earned
+- `updateCoinBadge()`: Sync header coin badge with bank total
+- `showEndScreen()`: Display session summary, coin bank, spend button, rotating CTA
+- `animateCountUp(el, target)`: Animate a numeric count-up over 500ms with ease-out
+- `isPoolExhausted()`: Check if all content IDs have been shown
+- `loadCoinBank()` / `saveCoinBank(total)` / `resetCoinBank()`: localStorage coin persistence
 - `checkOnboarding()`: Check localStorage flag to skip onboarding for returning users
 - `showIndicatorScaled(type, progress)`: Show swipe indicator with opacity/scale proportional to drag distance
 - `hideAllIndicators()`: Reset all indicator opacity and transform
@@ -162,6 +166,7 @@ The `createCard()` function determines visual format by inspecting the backgroun
 ### Browser Storage
 - `swipewatch_shown_content` (localStorage): JSON array of content IDs already shown
 - `swipewatch_onboarding_completed` (localStorage): String `"true"` when onboarding completed
+- `swipewatch_coin_bank` (localStorage): Persistent coin bank total (integer string)
 - `swipewatch_gesture_demo` (sessionStorage): String `"true"` when gesture demo has played (resets per tab)
 
 ## Analytics Events
@@ -173,7 +178,8 @@ All events use GA4 with category `"Card Interaction"`:
 | `dislike` | Left swipe | Content title | Current index |
 | `super_like` | Up swipe | Content title | Current index |
 | `onboarding` | Click "Let's Go" | "User completed onboarding" | 0 |
-| `restart` | Click "Start Over" | "User restarted the app" | Total swipe count |
+| `restart` | Click CTA on end screen | "User restarted the app" | Total swipe count |
+| `coin_spend` | Click "Use 25 Coins" | "Refresh batch for 25 coins" | Remaining bank total |
 
 ## Configuration
 
@@ -246,9 +252,24 @@ See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 ## Progress Display
 - Single progress bar with semantic label: "X of N recommendations"
 - No separate counter — label beneath bar replaces the old "X / Y" display
+- Coin bank badge in top-right of header shows persistent total
+
+## Coin Bank System
+- Coins earned = total swipes per session (liked + super liked + skipped)
+- Bank persists across sessions via `swipewatch_coin_bank` in localStorage
+- Header badge shows running total during swiping
+- End screen shows "+N This Session" with count-up animation and "Total Bank: N"
+- Coin image gets a glow pulse animation on session complete
+- **Spend mechanic:** 25 coins to refresh a new batch immediately (button shown when bank >= 25)
+- **Full reset:** when all content pool titles have been shown, CTA becomes "Start Fresh" — resets coin bank, shown content, and onboarding flag (returns to instruction screen)
+
+## End Screen
+- Rotating headlines: "Session Complete" / "Recommendations Updated" / "Your Taste Profile Updated"
+- Subheader: "Based on your swipes, we've refined your recommendations."
+- Structured session summary (bullet list: N Liked, N Super Liked, N Skipped)
+- Rotating CTA: "Keep Exploring" / "Swipe Another Batch" (normal), "Start Fresh" (pool exhausted)
 
 ## Known Behaviors
 - Cards auto-fallback to gradient if images fail to load (via `onerror` handlers)
-- Session resets when all 45+ titles have been shown
 - Partial sessions show remaining items if fewer than `SESSION_SIZE` are unshown
 - `disney-dollar.jpg` exists in the project but is not referenced by any code

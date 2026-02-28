@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Swipe Watch - Disney Content Discovery</title>
-    <link rel="stylesheet" href="styles.css?v=1.4">
+    <link rel="stylesheet" href="styles.css?v=1.5">
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-0SFL3RGC0H"></script>
@@ -22,8 +22,16 @@
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
-            <h1>Swipe Watch</h1>
-            <p class="subtitle">Discover Your Next Favorite</p>
+            <div class="header-top">
+                <div class="header-title">
+                    <h1>Swipe Watch</h1>
+                    <p class="subtitle">Discover Your Next Favorite</p>
+                </div>
+                <div class="coin-bank-badge" id="coin-bank-badge">
+                    <img src="disney-coin.png" alt="Coin" class="coin-badge-icon">
+                    <span id="coin-badge-count">0</span>
+                </div>
+            </div>
 
             <!-- Progress Bar -->
             <div class="progress-container">
@@ -112,39 +120,43 @@
         <!-- End Screen -->
         <div id="end-screen" class="end-screen hidden">
             <div class="end-screen-content">
-                <h2>That's All for Now!</h2>
-                <p>You've seen all available content</p>
+                <h2 id="end-heading">Session Complete</h2>
+                <p id="end-subheading">Based on your swipes, we've refined your recommendations.</p>
 
-                <!-- Disney Coins Earned -->
-                <div class="disney-dollars">
-                    <img src="disney-coin.png" alt="Disney Coin" class="dollar-image">
-                    <div class="dollar-count">
-                        <span class="dollar-amount" id="total-swipes">0</span>
-                        <span class="dollar-label">Disney Coins Earned</span>
+                <!-- Coin Summary -->
+                <div class="coin-summary">
+                    <img src="disney-coin.png" alt="Disney Coin" class="coin-summary-image">
+                    <div class="coin-summary-details">
+                        <div class="coin-session-gain">
+                            <span class="coin-plus" id="coin-session-amount">+10</span>
+                            <span class="coin-session-label">This Session</span>
+                        </div>
+                        <div class="coin-bank-total">
+                            <span class="coin-bank-label">Total Bank:</span>
+                            <span class="coin-bank-value" id="coin-bank-value">0</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Stats Summary -->
-                <div class="end-stats">
-                    <div class="end-stat-item">
-                        <span class="end-stat-number" id="end-liked-count">0</span>
-                        <span class="end-stat-label">Liked</span>
-                    </div>
-                    <div class="end-stat-item">
-                        <span class="end-stat-number" id="end-super-count">0</span>
-                        <span class="end-stat-label">Super Liked</span>
-                    </div>
-                    <div class="end-stat-item">
-                        <span class="end-stat-number" id="end-disliked-count">0</span>
-                        <span class="end-stat-label">Passed</span>
-                    </div>
+                <!-- Session Summary -->
+                <div class="session-summary" id="session-summary">
+                    <h3>This Session</h3>
+                    <ul class="session-summary-list">
+                        <li><span class="summary-count" id="end-liked-count">0</span> Liked</li>
+                        <li><span class="summary-count" id="end-super-count">0</span> Super Liked</li>
+                        <li><span class="summary-count" id="end-disliked-count">0</span> Skipped</li>
+                    </ul>
                 </div>
 
-                <button id="restart-btn" class="restart-btn">Start Over</button>
+                <!-- Coin Spend -->
+                <button id="spend-btn" class="spend-btn hidden">Use 25 Coins — Refresh Batch</button>
+
+                <!-- Primary CTA -->
+                <button id="restart-btn" class="restart-btn">Keep Exploring</button>
             </div>
         </div>
     </div>
 
-    <script src="app.js?v=1.4"></script>
+    <script src="app.js?v=1.5"></script>
 </body>
 </html>

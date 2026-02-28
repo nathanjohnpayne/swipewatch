@@ -501,76 +501,181 @@ html {
     margin-bottom: 25px;
 }
 
-/* Disney Dollars */
-.disney-dollars {
+/* Header Layout */
+.header-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.header-title {
+    text-align: left;
+    flex: 1;
+}
+
+/* Coin Bank Badge */
+.coin-bank-badge {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 5px 12px 5px 5px;
+    flex-shrink: 0;
+    margin-top: 4px;
+}
+
+.coin-badge-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.coin-bank-badge span {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: white;
+}
+
+/* Coin Summary (End Screen) */
+.coin-summary {
+    display: flex;
+    align-items: center;
     gap: 15px;
-    margin-bottom: 25px;
-    padding: 20px;
-    background: rgba(255,255,255,0.1);
+    margin-bottom: 20px;
+    padding: 18px;
+    background: rgba(255,255,255,0.08);
     border-radius: 15px;
 }
 
-.dollar-image {
-    width: 80px;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+.coin-summary-image {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-.dollar-count {
+.coin-summary-details {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    gap: 4px;
 }
 
-.dollar-amount {
-    font-size: 2.5rem;
+.coin-session-gain {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.coin-plus {
+    font-size: 1.6rem;
     font-weight: 800;
     color: #4ade80;
     text-shadow: 0 2px 8px rgba(74, 222, 128, 0.4);
-    line-height: 1;
 }
 
-.dollar-label {
-    font-size: 0.85rem;
-    color: rgba(255,255,255,0.9);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 5px;
+.coin-session-label {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.7);
 }
 
-/* End Stats */
-.end-stats {
+.coin-bank-total {
     display: flex;
-    justify-content: space-around;
-    margin-bottom: 25px;
-    padding: 20px;
-    background: rgba(255,255,255,0.05);
-    border-radius: 15px;
+    align-items: baseline;
+    gap: 6px;
 }
 
-.end-stat-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
+.coin-bank-label {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.6);
 }
 
-.end-stat-number {
-    font-size: 1.8rem;
+.coin-bank-value {
+    font-size: 1.1rem;
     font-weight: 700;
     color: white;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-.end-stat-label {
-    font-size: 0.75rem;
-    color: rgba(255,255,255,0.8);
+@keyframes coinGlow {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.5) drop-shadow(0 0 8px rgba(74,222,128,0.6)); }
+    100% { filter: brightness(1); }
+}
+
+.coin-summary-image.glow {
+    animation: coinGlow 500ms ease-in-out 1;
+}
+
+/* Session Summary (End Screen) */
+.session-summary {
+    margin-bottom: 20px;
+    padding: 18px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 15px;
+    text-align: left;
+}
+
+.session-summary h3 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.5);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.session-summary-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.session-summary-list li {
+    font-size: 0.95rem;
+    color: rgba(255,255,255,0.85);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-summary-list li::before {
+    content: "\2022";
+    color: rgba(255,255,255,0.4);
+}
+
+.summary-count {
+    font-weight: 700;
+    color: white;
+    min-width: 16px;
+}
+
+/* Spend Button */
+.spend-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 20px;
+    margin-bottom: 12px;
+    background: transparent;
+    color: #4ade80;
+    border: 1px solid rgba(74,222,128,0.3);
+    border-radius: 25px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.spend-btn:hover {
+    background: rgba(74,222,128,0.1);
+    border-color: rgba(74,222,128,0.5);
+}
+
+.spend-btn.hidden {
+    display: none;
 }
 
 .restart-btn {
@@ -839,39 +944,16 @@ html {
         font-size: 1.6rem;
     }
 
-    .disney-dollars {
-        flex-direction: column;
-        gap: 12px;
-        padding: 15px;
+    .coin-summary {
+        padding: 14px;
     }
 
-    .dollar-image {
-        width: 100px;
+    .coin-plus {
+        font-size: 1.4rem;
     }
 
-    .dollar-count {
-        align-items: center;
-    }
-
-    .dollar-amount {
-        font-size: 2.2rem;
-    }
-
-    .dollar-label {
-        font-size: 0.8rem;
-        text-align: center;
-    }
-
-    .end-stats {
-        padding: 15px 10px;
-    }
-
-    .end-stat-number {
-        font-size: 1.5rem;
-    }
-
-    .end-stat-label {
-        font-size: 0.7rem;
+    .session-summary {
+        padding: 14px;
     }
 
     /* Onboarding mobile */
@@ -956,14 +1038,6 @@ html {
 
     .end-screen h2 {
         font-size: 1.4rem;
-    }
-
-    .dollar-image {
-        width: 80px;
-    }
-
-    .dollar-amount {
-        font-size: 2rem;
     }
 
     /* Onboarding extra small */

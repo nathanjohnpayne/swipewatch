@@ -652,23 +652,16 @@ function saveShownContent() {
 function getSessionContent() {
     loadShownContent();
 
-    // Filter out already shown content
     const unshownContent = contentData.filter(item => !shownContent.includes(item.id));
 
-    // If all content has been shown, reset
     if (unshownContent.length === 0) {
-        shownContent = [];
-        saveShownContent();
         return shuffleArray(contentData).slice(0, SESSION_SIZE);
     }
 
-    // If we have enough unshown content for a full session
     if (unshownContent.length >= SESSION_SIZE) {
         return shuffleArray(unshownContent).slice(0, SESSION_SIZE);
     }
 
-    // If we have some unshown content but not enough for a full session
-    // Show all remaining unshown content
     return shuffleArray(unshownContent);
 }
 
@@ -683,10 +676,26 @@ let stats = {
     disliked: 0
 };
 
+// Coin bank persistence
+function loadCoinBank() {
+    return parseInt(localStorage.getItem('swipewatch_coin_bank') || '0', 10);
+}
+
+function saveCoinBank(total) {
+    localStorage.setItem('swipewatch_coin_bank', String(total));
+}
+
+function resetCoinBank() {
+    localStorage.removeItem('swipewatch_coin_bank');
+}
+
+let coinBankTotal = loadCoinBank();
+
 // DOM Elements
 const cardStack = document.getElementById('card-stack');
 const endScreen = document.getElementById('end-screen');
 const restartBtn = document.getElementById('restart-btn');
+const spendBtn = document.getElementById('spend-btn');
 const dislikeBtn = document.getElementById('dislike-btn');
 const likeBtn = document.getElementById('like-btn');
 const superBtn = document.getElementById('super-btn');
@@ -695,8 +704,14 @@ const superBtn = document.getElementById('super-btn');
 const progressBar = document.getElementById('progress-bar');
 const progressLabel = document.getElementById('progress-label');
 
+// Coin badge in header
+const coinBadgeCount = document.getElementById('coin-badge-count');
+
 // End screen elements
-const totalSwipes = document.getElementById('total-swipes');
+const endHeading = document.getElementById('end-heading');
+const endSubheading = document.getElementById('end-subheading');
+const coinSessionAmount = document.getElementById('coin-session-amount');
+const coinBankValue = document.getElementById('coin-bank-value');
 const endLikedCount = document.getElementById('end-liked-count');
 const endSuperCount = document.getElementById('end-super-count');
 const endDislikedCount = document.getElementById('end-disliked-count');
@@ -726,18 +741,20 @@ function init() {
     cardStack.innerHTML = '';
     endScreen.classList.add('hidden');
 
-    // Get new session content
     sessionContent = getSessionContent();
 
-    // Initialize progress
     updateProgress();
+    updateCoinBadge();
 
-    // Load initial cards (show 2-3 at a time for depth effect)
     for (let i = 0; i < Math.min(3, sessionContent.length); i++) {
         createCard(i);
     }
 
     armIdlePulse();
+}
+
+function updateCoinBadge() {
+    coinBadgeCount.textContent = coinBankTotal;
 }
 
 // Update progress bar and label
@@ -1054,16 +1071,81 @@ function showSwipeToast() {
     }, 400);
 }
 
+// Detect if content pool is fully exhausted
+function isPoolExhausted() {
+    loadShownContent();
+    const unshown = contentData.filter(item => !shownContent.includes(item.id));
+    return unshown.length === 0;
+}
+
 // Show end screen with stats
 function showEndScreen() {
-    const totalSwipeCount = stats.liked + stats.superLiked + stats.disliked;
+    const sessionCoins = stats.liked + stats.superLiked + stats.disliked;
+    const poolDone = isPoolExhausted();
 
-    totalSwipes.textContent = totalSwipeCount;
+    // Update coin bank
+    coinBankTotal += sessionCoins;
+    saveCoinBank(coinBankTotal);
+    updateCoinBadge();
+
+    // Rotating heading
+    const headings = ['Session Complete', 'Recommendations Updated', 'Your Taste Profile Updated'];
+    endHeading.textContent = headings[Math.floor(Math.random() * headings.length)];
+    endSubheading.textContent = 'Based on your swipes, we\u2019ve refined your recommendations.';
+
+    // Session stats
     endLikedCount.textContent = stats.liked;
     endSuperCount.textContent = stats.superLiked;
     endDislikedCount.textContent = stats.disliked;
 
+    // Coin display
+    coinSessionAmount.textContent = `+${sessionCoins}`;
+    coinBankValue.textContent = coinBankTotal;
+
+    // Coin glow animation
+    const coinImg = document.querySelector('.coin-summary-image');
+    if (coinImg) {
+        coinImg.classList.add('glow');
+        coinImg.addEventListener('animationend', () => coinImg.classList.remove('glow'), { once: true });
+    }
+
+    // Count-up animation on session coins
+    animateCountUp(coinSessionAmount, sessionCoins);
+
+    // Spend button visibility
+    if (coinBankTotal >= 25 && !poolDone) {
+        spendBtn.classList.remove('hidden');
+    } else {
+        spendBtn.classList.add('hidden');
+    }
+
+    // CTA text based on pool state
+    if (poolDone) {
+        restartBtn.textContent = 'Start Fresh';
+    } else {
+        const ctas = ['Keep Exploring', 'Swipe Another Batch'];
+        restartBtn.textContent = ctas[Math.floor(Math.random() * ctas.length)];
+    }
+
     endScreen.classList.remove('hidden');
+}
+
+// Count-up animation helper
+function animateCountUp(el, target) {
+    const prefix = '+';
+    const duration = 500;
+    const start = performance.now();
+
+    function tick(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = Math.round(eased * target);
+        el.textContent = `${prefix}${current}`;
+        if (progress < 1) requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
 }
 
 // Button handlers
@@ -1084,6 +1166,25 @@ superBtn.addEventListener('click', () => {
 
 restartBtn.addEventListener('click', () => {
     trackEvent('restart', 'User restarted the app', stats.liked + stats.superLiked + stats.disliked);
+
+    if (isPoolExhausted()) {
+        resetCoinBank();
+        coinBankTotal = 0;
+        shownContent = [];
+        saveShownContent();
+        localStorage.removeItem('swipewatch_onboarding_completed');
+        onboarding.classList.remove('hidden');
+        init();
+    } else {
+        init();
+    }
+});
+
+spendBtn.addEventListener('click', () => {
+    if (coinBankTotal < 25) return;
+    coinBankTotal -= 25;
+    saveCoinBank(coinBankTotal);
+    trackEvent('coin_spend', 'Refresh batch for 25 coins', coinBankTotal);
     init();
 });
 
