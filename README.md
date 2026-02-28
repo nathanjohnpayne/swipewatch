@@ -1,4 +1,4 @@
-# SwipeWatch - Disney Content Discovery
+# Swipe Watch - Disney Content Discovery
 
 A Tinder-style web app for discovering Disney+ and Hulu content through swipe interactions. Features session-based content rotation and gamified engagement with Disney Coins.
 
@@ -203,7 +203,7 @@ For production integration, the app provides hooks for:
 ## File Structure
 
 ```
-SwipeWatch/
+Swipe Watch/
 ├── index.html          # Main HTML structure with onboarding (150 lines)
 ├── styles.css          # All styling, animations, and responsive design (960 lines)
 ├── app.js              # Application logic, swipe handling, session management (890 lines)

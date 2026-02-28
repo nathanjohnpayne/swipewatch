@@ -1,7 +1,7 @@
-# SwipeWatch - Project Context
+# Swipe Watch - Project Context
 
 ## Description
-SwipeWatch is a Tinder-style web application for discovering Disney+ and Hulu content through swipe interactions. Features session-based content rotation and gamified engagement with Disney Coins.
+Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu content through swipe interactions. Features session-based content rotation and gamified engagement with Disney Coins.
 
 **Live Application:** https://swipewatch.web.app
 
@@ -15,7 +15,7 @@ SwipeWatch is a Tinder-style web application for discovering Disney+ and Hulu co
 
 ## Project Structure
 ```
-SwipeWatch/
+Swipe Watch/
 ├── index.html          # Main HTML structure with onboarding (150 lines)
 ├── app.js              # Core application logic (890 lines)
 ├── styles.css          # All styling, animations, responsive design (960 lines)

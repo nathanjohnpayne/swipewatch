@@ -117,7 +117,7 @@ Edit `app.js` and add any image URL to the `background` field:
 
 ## Option 3: Use Local Images
 
-1. Create a `posters` folder in the SwipeWatch directory
+1. Create a `posters` folder in the Swipe Watch directory
 2. Add poster images (JPG, PNG, or WebP format)
 3. Update the `background` field with relative paths:
 
@@ -201,7 +201,7 @@ The app automatically creates a gradient by darkening the base color using the `
 ## Example Setup with Local Images
 
 ```
-SwipeWatch/
+Swipe Watch/
 ├── index.html
 ├── styles.css
 ├── app.js
