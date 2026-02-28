@@ -635,6 +635,36 @@ let availableContent = [...contentData];
 let shownContent = [];
 let sessionContent = [];
 
+// Discovery modes for coin spend
+const DISCOVERY_MODES = [
+    {
+        id: 'hidden-gems',
+        name: 'Hidden Gems',
+        description: 'Classic and overlooked favorites',
+        filter: item => parseInt(item.year) < 2000 || /Classic|Anthology|Coming of Age/i.test(item.genres)
+    },
+    {
+        id: 'award-winners',
+        name: 'Award Winners',
+        description: 'Prestige drama and critical favorites',
+        filter: item => /Drama/i.test(item.genres) && /Hulu Original|FX|Mystery/i.test(item.genres)
+    },
+    {
+        id: 'nature-discovery',
+        name: 'Nature & Discovery',
+        description: 'Documentaries, nature, and history',
+        filter: item => /Docuseries|Documentaries|Animals & Nature|History/i.test(item.genres)
+    },
+    {
+        id: 'new-trending',
+        name: 'New & Trending',
+        description: 'The latest releases',
+        filter: item => parseInt(item.year) >= 2025
+    }
+];
+
+let activeMode = null;
+
 // Load shown content from localStorage
 function loadShownContent() {
     const stored = localStorage.getItem('swipewatch_shown_content');
@@ -652,10 +682,16 @@ function saveShownContent() {
 function getSessionContent() {
     loadShownContent();
 
-    const unshownContent = contentData.filter(item => !shownContent.includes(item.id));
+    let pool = contentData;
+
+    if (activeMode) {
+        pool = contentData.filter(activeMode.filter);
+    }
+
+    const unshownContent = pool.filter(item => !shownContent.includes(item.id));
 
     if (unshownContent.length === 0) {
-        return shuffleArray(contentData).slice(0, SESSION_SIZE);
+        return shuffleArray([...pool]).slice(0, SESSION_SIZE);
     }
 
     if (unshownContent.length >= SESSION_SIZE) {
@@ -696,6 +732,9 @@ const cardStack = document.getElementById('card-stack');
 const endScreen = document.getElementById('end-screen');
 const restartBtn = document.getElementById('restart-btn');
 const spendBtn = document.getElementById('spend-btn');
+const unlockModal = document.getElementById('unlock-modal');
+const unlockModesContainer = document.getElementById('unlock-modes');
+const unlockCancelBtn = document.getElementById('unlock-cancel');
 const dislikeBtn = document.getElementById('dislike-btn');
 const likeBtn = document.getElementById('like-btn');
 const superBtn = document.getElementById('super-btn');
@@ -806,8 +845,11 @@ function createCard(index) {
             </div>`;
     }
 
+    const badgeHTML = activeMode ? `<div class="card-mode-badge">${activeMode.name}</div>` : '';
+
     card.innerHTML = `
         ${posterHTML}
+        ${badgeHTML}
         <div class="card-info">
             <span class="card-type">${content.type}</span>
             <h2 class="card-title">${content.title}</h2>
@@ -1064,11 +1106,14 @@ function cancelGestureDemo(card) {
 }
 
 // Toast helper
-function showSwipeToast() {
+function showSwipeToast(text) {
+    if (text) swipeToast.textContent = text;
+    else swipeToast.textContent = 'Learning your taste...';
     swipeToast.classList.add('visible');
+    const duration = text ? 1500 : 400;
     setTimeout(() => {
         swipeToast.classList.remove('visible');
-    }, 400);
+    }, duration);
 }
 
 // Detect if content pool is fully exhausted
@@ -1080,6 +1125,7 @@ function isPoolExhausted() {
 
 // Show end screen with stats
 function showEndScreen() {
+    activeMode = null;
     const sessionCoins = stats.liked + stats.superLiked + stats.disliked;
     const poolDone = isPoolExhausted();
 
@@ -1182,10 +1228,36 @@ restartBtn.addEventListener('click', () => {
 
 spendBtn.addEventListener('click', () => {
     if (coinBankTotal < 25) return;
+    endScreen.classList.add('hidden');
+    openUnlockModal();
+});
+
+function openUnlockModal() {
+    unlockModesContainer.innerHTML = '';
+    DISCOVERY_MODES.forEach(mode => {
+        const btn = document.createElement('button');
+        btn.className = 'unlock-mode-btn';
+        btn.innerHTML = `<span class="mode-name">${mode.name}</span><span class="mode-desc">${mode.description}</span>`;
+        btn.addEventListener('click', () => selectUnlockMode(mode));
+        unlockModesContainer.appendChild(btn);
+    });
+    unlockModal.classList.remove('hidden');
+}
+
+function selectUnlockMode(mode) {
+    activeMode = mode;
     coinBankTotal -= 25;
     saveCoinBank(coinBankTotal);
-    trackEvent('coin_spend', 'Refresh batch for 25 coins', coinBankTotal);
+    updateCoinBadge();
+    unlockModal.classList.add('hidden');
+    showSwipeToast(`Rare Picks: ${mode.name} Unlocked`);
+    trackEvent('unlock_mode', mode.name, coinBankTotal);
     init();
+}
+
+unlockCancelBtn.addEventListener('click', () => {
+    unlockModal.classList.add('hidden');
+    endScreen.classList.remove('hidden');
 });
 
 // Onboarding handler

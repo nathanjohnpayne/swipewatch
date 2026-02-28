@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Swipe Watch - Disney Content Discovery</title>
-    <link rel="stylesheet" href="styles.css?v=1.5">
+    <link rel="stylesheet" href="styles.css?v=1.6">
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-0SFL3RGC0H"></script>
@@ -149,14 +149,23 @@
                 </div>
 
                 <!-- Coin Spend -->
-                <button id="spend-btn" class="spend-btn hidden">Use 25 Coins — Refresh Batch</button>
+                <button id="spend-btn" class="spend-btn hidden">Unlock Rare Picks — 25 Coins</button>
 
                 <!-- Primary CTA -->
                 <button id="restart-btn" class="restart-btn">Keep Exploring</button>
             </div>
         </div>
+        <!-- Unlock Modal -->
+        <div id="unlock-modal" class="unlock-modal hidden">
+            <div class="unlock-modal-content">
+                <h2>Choose a Discovery Mode</h2>
+                <p class="unlock-modal-sub">Unlock a curated batch for 25 coins</p>
+                <div class="unlock-modes" id="unlock-modes"></div>
+                <button id="unlock-cancel" class="unlock-cancel">Cancel</button>
+            </div>
+        </div>
     </div>
 
-    <script src="app.js?v=1.5"></script>
+    <script src="app.js?v=1.6"></script>
 </body>
 </html>

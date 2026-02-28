@@ -11,7 +11,7 @@ Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu c
 - **Hosting:** Firebase Hosting with CDN
 - **Analytics:** Google Analytics 4 (GA4)—Measurement ID `G-0SFL3RGC0H`
 - **Build Process:** None required - static files only
-- **Asset Versioning:** Query params on CSS/JS (`?v=1.5`)
+- **Asset Versioning:** Query params on CSS/JS (`?v=1.6`)
 
 ## Project Structure
 ```
@@ -131,8 +131,8 @@ firebase deploy
 
 ### Key Functions
 - `init()`: Initialize/reset app state, get session content, load initial cards, arm idle pulse
-- `getSessionContent()`: Get next batch of random tiles from unshown content pool
-- `createCard(index)`: Render card with poster/letterbox/fallback based on URL label detection
+- `getSessionContent()`: Get next batch of random tiles from unshown content pool; applies `activeMode.filter` when set
+- `createCard(index)`: Render card with poster/letterbox/fallback based on URL label detection; adds mode badge during unlock batches
 - `swipeCard(card, direction)`: Handle swipe animation, update stats, mark content as shown, show toast
 - `addSwipeListeners(card)`: Add touch/mouse event handlers with drag tracking, dynamic shadow, continuous overlay scaling
 - `trackEvent(action, label, value)`: Send GA4 events
@@ -149,7 +149,9 @@ firebase deploy
 - `hideAllIndicators()`: Reset all indicator opacity and transform
 - `armIdlePulse()` / `cancelIdlePulse(card)`: Manage idle breathing animation on active card
 - `triggerGestureDemo()` / `cancelGestureDemo(card)`: Run one-time gesture demo animation on first visit
-- `showSwipeToast()`: Flash transient "Learning your taste..." toast after each swipe
+- `showSwipeToast(text)`: Flash transient toast; defaults to "Learning your taste..." or shows custom text (1.5s for custom)
+- `openUnlockModal()`: Render discovery mode buttons and show modal overlay
+- `selectUnlockMode(mode)`: Set activeMode, deduct 25 coins, show unlock toast, restart session with filtered content
 
 ### Card Rendering Logic
 The `createCard()` function determines visual format by inspecting the background URL:
@@ -179,13 +181,20 @@ All events use GA4 with category `"Card Interaction"`:
 | `super_like` | Up swipe | Content title | Current index |
 | `onboarding` | Click "Let's Go" | "User completed onboarding" | 0 |
 | `restart` | Click CTA on end screen | "User restarted the app" | Total swipe count |
-| `coin_spend` | Click "Use 25 Coins" | "Refresh batch for 25 coins" | Remaining bank total |
+| `unlock_mode` | Select discovery mode in modal | Mode name (e.g. "Hidden Gems") | Remaining bank total |
 
 ## Configuration
 
 ### Adjustable Constants
 ```javascript
 const SESSION_SIZE = 10;  // Tiles per session
+const DISCOVERY_MODES = [  // Coin-spend unlock modes
+    { id: 'hidden-gems', name: 'Hidden Gems', filter: year < 2000 or Classic/Anthology/Coming of Age },
+    { id: 'award-winners', name: 'Award Winners', filter: Drama AND (Hulu Original/FX/Mystery) },
+    { id: 'nature-discovery', name: 'Nature & Discovery', filter: Docuseries/Documentaries/Animals/History },
+    { id: 'new-trending', name: 'New & Trending', filter: year >= 2025 }
+];
+let activeMode = null;  // Currently active discovery mode (set during unlock batch, cleared on end screen)
 ```
 
 ### Firebase Config (firebase.json)

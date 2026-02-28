@@ -678,6 +678,124 @@ html {
     display: none;
 }
 
+/* Unlock Modal */
+.unlock-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(10px);
+    z-index: 2500;
+}
+
+.unlock-modal.hidden {
+    display: none;
+}
+
+.unlock-modal-content {
+    background: rgba(30,30,40,0.95);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 30px 24px;
+    border-radius: 20px;
+    max-width: 90%;
+    width: 340px;
+    text-align: center;
+    color: white;
+}
+
+.unlock-modal-content h2 {
+    font-size: 1.3rem;
+    margin: 0 0 6px;
+    font-weight: 700;
+}
+
+.unlock-modal-sub {
+    font-size: 0.85rem;
+    opacity: 0.6;
+    margin: 0 0 20px;
+}
+
+.unlock-modes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.unlock-mode-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.unlock-mode-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.18);
+}
+
+.unlock-mode-btn:active {
+    transform: scale(0.98);
+}
+
+.unlock-mode-btn .mode-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.unlock-mode-btn .mode-desc {
+    font-size: 0.78rem;
+    opacity: 0.5;
+}
+
+.unlock-cancel {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    color: rgba(255,255,255,0.5);
+    border: none;
+    border-radius: 14px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.unlock-cancel:hover {
+    color: rgba(255,255,255,0.8);
+}
+
+/* Card mode badge (shown during unlock batches) */
+.card-mode-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 10px;
+    z-index: 3;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
 .restart-btn {
     padding: 12px 30px;
     background: white;
