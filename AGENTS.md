@@ -11,14 +11,14 @@ Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu c
 - **Hosting:** Firebase Hosting with CDN
 - **Analytics:** Google Analytics 4 (GA4)—Measurement ID `G-0SFL3RGC0H`
 - **Build Process:** None required - static files only
-- **Asset Versioning:** Query params on CSS/JS (`?v=1.3`)
+- **Asset Versioning:** Query params on CSS/JS (`?v=1.4`)
 
 ## Project Structure
 ```
 Swipe Watch/
 ├── index.html          # Main HTML structure with onboarding (150 lines)
-├── app.js              # Core application logic (890 lines)
-├── styles.css          # All styling, animations, responsive design (960 lines)
+├── app.js              # Core application logic (1112 lines)
+├── styles.css          # All styling, animations, responsive design (1056 lines)
 ├── disney-coin.png     # Disney Coins reward image (used in end screen)
 ├── disney-dollar.jpg   # Unused asset (not referenced in code)
 ├── firebase.json       # Firebase Hosting config (no-cache headers, SPA rewrites)
@@ -130,18 +130,22 @@ firebase deploy
 ```
 
 ### Key Functions
-- `init()`: Initialize/reset app state, get session content, load initial cards
+- `init()`: Initialize/reset app state, get session content, load initial cards, arm idle pulse
 - `getSessionContent()`: Get next batch of random tiles from unshown content pool
 - `createCard(index)`: Render card with poster/letterbox/fallback based on URL label detection
-- `swipeCard(card, direction)`: Handle swipe animation, update stats, mark content as shown
-- `addSwipeListeners(card)`: Add touch/mouse event handlers with drag tracking
+- `swipeCard(card, direction)`: Handle swipe animation, update stats, mark content as shown, show toast
+- `addSwipeListeners(card)`: Add touch/mouse event handlers with drag tracking, dynamic shadow, continuous overlay scaling
 - `trackEvent(action, label, value)`: Send GA4 events
 - `shuffleArray(array)`: Fisher-Yates shuffle for random content ordering
 - `adjustColor(color, amount)`: Darken hex colors for gradient backgrounds
-- `updateProgress()`: Update progress bar width and card counter
+- `updateProgress()`: Update progress bar width and progress label text
 - `showEndScreen()`: Display stats and Disney Coins earned
 - `checkOnboarding()`: Check localStorage flag to skip onboarding for returning users
-- `showIndicator(type)` / `hideAllIndicators()`: Toggle swipe direction indicators
+- `showIndicatorScaled(type, progress)`: Show swipe indicator with opacity/scale proportional to drag distance
+- `hideAllIndicators()`: Reset all indicator opacity and transform
+- `armIdlePulse()` / `cancelIdlePulse(card)`: Manage idle breathing animation on active card
+- `triggerGestureDemo()` / `cancelGestureDemo(card)`: Run one-time gesture demo animation on first visit
+- `showSwipeToast()`: Flash transient "Learning your taste..." toast after each swipe
 
 ### Card Rendering Logic
 The `createCard()` function determines visual format by inspecting the background URL:
@@ -156,8 +160,9 @@ The `createCard()` function determines visual format by inspecting the backgroun
 - Next card loads when current card + 2 is available
 
 ### Browser Storage
-- `swipewatch_shown_content`: JSON array of content IDs already shown
-- `swipewatch_onboarding_completed`: String `"true"` when onboarding completed
+- `swipewatch_shown_content` (localStorage): JSON array of content IDs already shown
+- `swipewatch_onboarding_completed` (localStorage): String `"true"` when onboarding completed
+- `swipewatch_gesture_demo` (sessionStorage): String `"true"` when gesture demo has played (resets per tab)
 
 ## Analytics Events
 All events use GA4 with category `"Card Interaction"`:
@@ -167,7 +172,7 @@ All events use GA4 with category `"Card Interaction"`:
 | `like` | Right swipe | Content title | Current index |
 | `dislike` | Left swipe | Content title | Current index |
 | `super_like` | Up swipe | Content title | Current index |
-| `onboarding` | Click "Start Swiping" | "User completed onboarding" | 0 |
+| `onboarding` | Click "Let's Go" | "User completed onboarding" | 0 |
 | `restart` | Click "Start Over" | "User restarted the app" | Total swipe count |
 
 ## Configuration
@@ -203,11 +208,18 @@ const SESSION_SIZE = 10;  // Tiles per session
 See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 
 ## Swipe Mechanics
-- **Indicator threshold:** 50px drag distance shows direction indicator
+- **Indicator visibility:** Continuous — opacity scales from 0 to 1 proportional to drag distance (0–100px), with slight scale boost (up to 1.05x) past 50%
 - **Action threshold:** 100px drag distance triggers the swipe action
+- **Indicator start:** 20px minimum drag before indicator begins appearing
 - **Rotation:** Card rotates proportional to horizontal drag (`deltaX * 0.1` degrees)
-- **Animation:** 300ms transition for card exit, then next card activates
+- **Dynamic shadow:** Box shadow shifts opposite to drag vector during drag
+- **Animation:** 300ms transition for card exit; progress bar animates in sync
+- **Post-swipe toast:** "Learning your taste..." shows for 400ms after each swipe
 - Touch events use `passive: false` to enable `preventDefault`
+
+## Motion & Affordance
+- **Gesture demo:** On first visit, top card nudges right (+15px, 3° rotation) with brief "LIKE" flash overlay (1000ms, runs once per session via sessionStorage)
+- **Idle pulse:** After 4s of inactivity, active card breathes with `scale(1) → scale(1.01) → scale(1)` animation; cancelled on interaction, re-armed on next card
 
 ## Responsive Breakpoints
 | Breakpoint | Type | Target |
@@ -218,10 +230,25 @@ See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 | `max-width: 360px` | Small mobile | Reduced font sizes |
 | `max-height: 600px` + landscape | Landscape mobile | Special horizontal layout |
 
+## Onboarding
+- Shows only on first visit (localStorage flag)
+- Headline: "Swipe a few titles to personalize your recommendations"
+- Subtext: "We'll learn your taste as you swipe."
+- CTA: "Let's Go"
+- Swipe Up step is visually de-emphasized (~15% smaller icon, 0.7 opacity) to signal secondary action
+- Background uses radial purple gradient vignette for visual continuity with main UI
+- On dismiss, triggers gesture demo animation on top card (first visit only)
+
+## Action Button Hierarchy
+- Like (heart) and Dislike (X) buttons are primary (60x60px)
+- Super/Watchlist (star) button is secondary (50x50px, no gradient, accent color on white)
+
+## Progress Display
+- Single progress bar with semantic label: "X of N recommendations"
+- No separate counter — label beneath bar replaces the old "X / Y" display
+
 ## Known Behaviors
-- Onboarding shows only on first visit (localStorage flag)
 - Cards auto-fallback to gradient if images fail to load (via `onerror` handlers)
-- Session resets when all 45 titles have been shown
+- Session resets when all 45+ titles have been shown
 - Partial sessions show remaining items if fewer than `SESSION_SIZE` are unshown
-- Touch events use `passive: false` to enable preventDefault
 - `disney-dollar.jpg` exists in the project but is not referenced by any code

@@ -65,13 +65,11 @@ html {
     width: 0%;
 }
 
-/* Counter */
-.counter {
-    margin-top: 10px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: white;
-    opacity: 0.85;
+/* Progress Label */
+.progress-label {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.7);
 }
 
 /* Card Container */
@@ -251,7 +249,7 @@ html {
     border-radius: 10px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.1s ease;
+    transition: opacity 0.1s ease, transform 0.1s ease;
     z-index: 100;
 }
 
@@ -324,10 +322,9 @@ html {
 }
 
 .action-btn.super {
-    width: 70px;
-    height: 70px;
-    background: linear-gradient(135deg, #4fc3f7 0%, #667eea 100%);
-    color: white;
+    width: 50px;
+    height: 50px;
+    color: #4fc3f7;
 }
 
 /* Stats - Hidden */
@@ -342,7 +339,7 @@ html {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0,0,0,0.95);
+    background: radial-gradient(ellipse at center, rgba(102,126,234,0.15) 0%, rgba(0,0,0,0.95) 70%);
     backdrop-filter: blur(10px);
     z-index: 2000;
     display: flex;
@@ -375,7 +372,13 @@ html {
 .onboarding-subtitle {
     font-size: 1.1rem;
     opacity: 0.9;
-    margin-bottom: 40px;
+    margin-bottom: 8px;
+}
+
+.onboarding-subtext {
+    font-size: 0.9rem;
+    opacity: 0.6;
+    margin-bottom: 36px;
 }
 
 .onboarding-steps {
@@ -412,6 +415,12 @@ html {
 
 .onboarding-icon.swipe-up {
     background: linear-gradient(135deg, #4fc3f7 0%, #667eea 100%);
+    width: 68px;
+    height: 68px;
+}
+
+.onboarding-step:last-child {
+    opacity: 0.7;
 }
 
 .onboarding-step h3 {
@@ -581,6 +590,74 @@ html {
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
+/* Swipe Toast */
+.swipe-toast {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 8px 18px;
+    border-radius: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 50;
+    white-space: nowrap;
+}
+
+.swipe-toast.visible {
+    opacity: 1;
+}
+
+/* Gesture Demo Animation */
+@keyframes gestureDemo {
+    0% { transform: translateX(0) rotate(0); }
+    40% { transform: translateX(15px) rotate(3deg); }
+    100% { transform: translateX(0) rotate(0); }
+}
+
+@keyframes gestureLikeFlash {
+    0%, 20% { opacity: 0; }
+    35%, 50% { opacity: 0.7; }
+    70%, 100% { opacity: 0; }
+}
+
+.card.gesture-demo {
+    animation: gestureDemo 1000ms ease-in-out 1 forwards;
+}
+
+.gesture-like-flash {
+    position: absolute;
+    top: 80px;
+    right: 40px;
+    font-size: 3rem;
+    font-weight: 800;
+    color: #20e3b2;
+    border: 4px solid #20e3b2;
+    border-radius: 10px;
+    padding: 10px 20px;
+    transform: rotate(20deg);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 10;
+    animation: gestureLikeFlash 1000ms ease-in-out 1 forwards;
+}
+
+/* Idle Card Affordance */
+@keyframes idlePulse {
+    0%, 70%, 100% { transform: scale(1); }
+    80% { transform: scale(1.01); }
+    90% { transform: scale(1); }
+}
+
+.card.idle-pulse {
+    animation: idlePulse 5s ease-in-out infinite;
+}
+
 /* Animations */
 @keyframes swipe-left {
     to {
@@ -637,8 +714,8 @@ html {
     }
 
     .action-btn.super {
-        width: 65px;
-        height: 65px;
+        width: 46px;
+        height: 46px;
     }
 
     .card-description {
@@ -699,8 +776,8 @@ html {
     }
 
     .action-btn.super {
-        width: 58px;
-        height: 58px;
+        width: 42px;
+        height: 42px;
     }
 
     .card-title {
@@ -817,6 +894,11 @@ html {
         height: 70px;
     }
 
+    .onboarding-icon.swipe-up {
+        width: 60px;
+        height: 60px;
+    }
+
     .onboarding-icon svg {
         width: 35px;
         height: 35px;
@@ -828,6 +910,10 @@ html {
 
     .onboarding-step p {
         font-size: 0.9rem;
+    }
+
+    .onboarding-subtitle {
+        margin-bottom: 6px;
     }
 }
 
@@ -847,8 +933,8 @@ html {
     }
 
     .action-btn.super {
-        width: 52px;
-        height: 52px;
+        width: 38px;
+        height: 38px;
     }
 
     .card-title {
@@ -887,7 +973,12 @@ html {
 
     .onboarding-subtitle {
         font-size: 0.9rem;
-        margin-bottom: 25px;
+        margin-bottom: 4px;
+    }
+
+    .onboarding-subtext {
+        font-size: 0.8rem;
+        margin-bottom: 22px;
     }
 
     .onboarding-steps {
@@ -897,6 +988,11 @@ html {
     .onboarding-icon {
         width: 60px;
         height: 60px;
+    }
+
+    .onboarding-icon.swipe-up {
+        width: 50px;
+        height: 50px;
     }
 
     .onboarding-icon svg {

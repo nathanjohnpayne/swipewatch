@@ -693,8 +693,7 @@ const superBtn = document.getElementById('super-btn');
 
 // Progress elements
 const progressBar = document.getElementById('progress-bar');
-const currentCardEl = document.getElementById('current-card');
-const totalCardsEl = document.getElementById('total-cards');
+const progressLabel = document.getElementById('progress-label');
 
 // End screen elements
 const totalSwipes = document.getElementById('total-swipes');
@@ -707,9 +706,18 @@ const nopeIndicator = document.querySelector('.swipe-indicator.nope');
 const likeIndicator = document.querySelector('.swipe-indicator.like');
 const superIndicator = document.querySelector('.swipe-indicator.super');
 
+// Toast element
+const swipeToast = document.getElementById('swipe-toast');
+
 // Onboarding elements
 const onboarding = document.getElementById('onboarding');
 const startBtn = document.getElementById('start-btn');
+
+// Idle affordance state
+let idleTimeout = null;
+
+// Gesture demo state
+let gestureDemoShown = false;
 
 // Initialize app
 function init() {
@@ -722,20 +730,22 @@ function init() {
     sessionContent = getSessionContent();
 
     // Initialize progress
-    totalCardsEl.textContent = sessionContent.length;
     updateProgress();
 
     // Load initial cards (show 2-3 at a time for depth effect)
     for (let i = 0; i < Math.min(3, sessionContent.length); i++) {
         createCard(i);
     }
+
+    armIdlePulse();
 }
 
-// Update progress bar and counter
+// Update progress bar and label
 function updateProgress() {
     const progress = (currentIndex / sessionContent.length) * 100;
     progressBar.style.width = `${progress}%`;
-    currentCardEl.textContent = currentIndex + 1;
+    const display = Math.min(currentIndex + 1, sessionContent.length);
+    progressLabel.textContent = `${display} of ${sessionContent.length} recommendations`;
 }
 
 // Create card element
@@ -822,6 +832,9 @@ function addSwipeListeners(card) {
         isDragging = true;
         startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
         startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+
+        cancelIdlePulse(card);
+        cancelGestureDemo(card);
     };
 
     const handleMove = (e) => {
@@ -837,16 +850,23 @@ function addSwipeListeners(card) {
 
         card.style.transform = `translate(${deltaX}px, ${deltaY}px) rotate(${rotation}deg)`;
 
-        // Show appropriate indicator
+        const shadowX = -deltaX * 0.05;
+        const shadowY = 10 + Math.abs(deltaY) * 0.02;
+        card.style.boxShadow = `${shadowX}px ${shadowY}px 40px rgba(0,0,0,0.3)`;
+
         const absX = Math.abs(deltaX);
         const absY = Math.abs(deltaY);
+        const ACTION_THRESHOLD = 100;
 
-        if (absY > absX && deltaY < -50) {
-            showIndicator('super');
-        } else if (absX > absY && deltaX < -50) {
-            showIndicator('nope');
-        } else if (absX > absY && deltaX > 50) {
-            showIndicator('like');
+        if (absY > absX && deltaY < -20) {
+            const progress = Math.min(1, Math.abs(deltaY) / ACTION_THRESHOLD);
+            showIndicatorScaled('super', progress);
+        } else if (absX > absY && deltaX < -20) {
+            const progress = Math.min(1, absX / ACTION_THRESHOLD);
+            showIndicatorScaled('nope', progress);
+        } else if (absX > absY && deltaX > 20) {
+            const progress = Math.min(1, absX / ACTION_THRESHOLD);
+            showIndicatorScaled('like', progress);
         } else {
             hideAllIndicators();
         }
@@ -861,7 +881,6 @@ function addSwipeListeners(card) {
         const absX = Math.abs(deltaX);
         const absY = Math.abs(deltaY);
 
-        // Determine swipe direction
         if (absY > absX && deltaY < -100) {
             swipeCard(card, 'up');
         } else if (absX > absY && deltaX < -100) {
@@ -869,18 +888,17 @@ function addSwipeListeners(card) {
         } else if (absX > absY && deltaX > 100) {
             swipeCard(card, 'right');
         } else {
-            // Snap back
             card.style.transform = '';
+            card.style.boxShadow = '';
             hideAllIndicators();
+            armIdlePulse();
         }
     };
 
-    // Mouse events
     card.addEventListener('mousedown', handleStart);
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleEnd);
 
-    // Touch events
     card.addEventListener('touchstart', handleStart);
     document.addEventListener('touchmove', handleMove, { passive: false });
     document.addEventListener('touchend', handleEnd);
@@ -900,6 +918,7 @@ function trackEvent(action, label, value) {
 // Swipe card with animation
 function swipeCard(card, direction) {
     card.classList.add('animating');
+    card.style.boxShadow = '';
     hideAllIndicators();
 
     const content = sessionContent[currentIndex];
@@ -925,48 +944,114 @@ function swipeCard(card, direction) {
 
     card.style.opacity = '0';
 
+    // Sync progress bar with card exit animation
+    currentIndex++;
+    updateProgress();
+
+    showSwipeToast();
+
     setTimeout(() => {
-        // Mark content as shown
         shownContent.push(content.id);
         saveShownContent();
 
         card.remove();
-        currentIndex++;
-        updateProgress();
 
-        // Load next card if available
         if (currentIndex + 2 < sessionContent.length) {
             createCard(currentIndex + 2);
         }
 
-        // Check if we've gone through all cards
         if (currentIndex >= sessionContent.length) {
             showEndScreen();
         } else {
-            // Enable swipe on next card
             const nextCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
             if (nextCard) {
                 addSwipeListeners(nextCard);
-                // Animate card to front
                 nextCard.style.transform = '';
+                armIdlePulse();
             }
         }
     }, 300);
 }
 
-// Show swipe indicator
-function showIndicator(type) {
+// Show swipe indicator with scaled opacity/size
+function showIndicatorScaled(type, progress) {
     hideAllIndicators();
-    if (type === 'nope') nopeIndicator.classList.add('visible');
-    if (type === 'like') likeIndicator.classList.add('visible');
-    if (type === 'super') superIndicator.classList.add('visible');
+    let el;
+    if (type === 'nope') el = nopeIndicator;
+    else if (type === 'like') el = likeIndicator;
+    else if (type === 'super') el = superIndicator;
+    if (!el) return;
+
+    el.style.opacity = progress;
+    const scale = progress > 0.5 ? 1 + (progress - 0.5) * 0.1 : 1;
+    el.style.transform = el.style.transform || '';
+    const baseRotation = type === 'nope' ? 'rotate(-20deg)' : type === 'like' ? 'rotate(20deg)' : 'rotate(0deg)';
+    el.style.transform = `${baseRotation} scale(${scale})`;
 }
 
 // Hide all indicators
 function hideAllIndicators() {
-    nopeIndicator.classList.remove('visible');
-    likeIndicator.classList.remove('visible');
-    superIndicator.classList.remove('visible');
+    [nopeIndicator, likeIndicator, superIndicator].forEach(el => {
+        el.style.opacity = '0';
+        el.style.transform = '';
+    });
+}
+
+// Idle pulse helpers
+function armIdlePulse() {
+    clearTimeout(idleTimeout);
+    idleTimeout = setTimeout(() => {
+        const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
+        if (topCard && !topCard.classList.contains('gesture-demo')) {
+            topCard.classList.add('idle-pulse');
+        }
+    }, 4000);
+}
+
+function cancelIdlePulse(card) {
+    clearTimeout(idleTimeout);
+    card.classList.remove('idle-pulse');
+}
+
+// Gesture demo helpers
+function triggerGestureDemo() {
+    if (sessionStorage.getItem('swipewatch_gesture_demo')) return;
+    const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
+    if (!topCard) return;
+
+    gestureDemoShown = true;
+    topCard.classList.add('gesture-demo');
+
+    const flash = document.createElement('div');
+    flash.className = 'gesture-like-flash';
+    flash.textContent = 'LIKE';
+    topCard.appendChild(flash);
+
+    topCard.addEventListener('animationend', function onEnd() {
+        topCard.removeEventListener('animationend', onEnd);
+        topCard.classList.remove('gesture-demo');
+        flash.remove();
+        sessionStorage.setItem('swipewatch_gesture_demo', 'true');
+        gestureDemoShown = false;
+        armIdlePulse();
+    }, { once: true });
+}
+
+function cancelGestureDemo(card) {
+    if (!gestureDemoShown) return;
+    card.classList.remove('gesture-demo');
+    const flash = card.querySelector('.gesture-like-flash');
+    if (flash) flash.remove();
+    sessionStorage.setItem('swipewatch_gesture_demo', 'true');
+    gestureDemoShown = false;
+}
+
+// Toast helper
+function showSwipeToast() {
+    swipeToast.classList.add('visible');
+    setTimeout(() => {
+        swipeToast.classList.remove('visible');
+    }, 400);
 }
 
 // Show end screen with stats
@@ -1007,6 +1092,7 @@ startBtn.addEventListener('click', () => {
     onboarding.classList.add('hidden');
     localStorage.setItem('swipewatch_onboarding_completed', 'true');
     trackEvent('onboarding', 'User completed onboarding', 0);
+    triggerGestureDemo();
 });
 
 // Check if onboarding has been completed
@@ -1015,8 +1101,12 @@ function checkOnboarding() {
     if (completed === 'true') {
         onboarding.classList.add('hidden');
     }
+    return completed === 'true';
 }
 
 // Start the app
-checkOnboarding();
+const skipOnboarding = checkOnboarding();
 init();
+if (skipOnboarding) {
+    triggerGestureDemo();
+}

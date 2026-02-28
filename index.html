@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Swipe Watch - Disney Content Discovery</title>
-    <link rel="stylesheet" href="styles.css?v=1.3">
+    <link rel="stylesheet" href="styles.css?v=1.4">
 
     <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-0SFL3RGC0H"></script>
@@ -29,11 +29,7 @@
             <div class="progress-container">
                 <div class="progress-bar" id="progress-bar"></div>
             </div>
-
-            <!-- Counter -->
-            <div class="counter" id="counter">
-                <span id="current-card">1</span> / <span id="total-cards">30</span>
-            </div>
+            <div class="progress-label" id="progress-label">1 of 10 recommendations</div>
         </header>
 
         <!-- Main Card Stack -->
@@ -46,13 +42,17 @@
             <div class="swipe-indicator nope">NOPE</div>
             <div class="swipe-indicator like">LIKE</div>
             <div class="swipe-indicator super">Watchlist</div>
+
+            <!-- Post-swipe toast -->
+            <div class="swipe-toast" id="swipe-toast">Learning your taste...</div>
         </div>
 
         <!-- Onboarding Overlay -->
         <div id="onboarding" class="onboarding">
             <div class="onboarding-content">
                 <h2>Welcome to Swipe Watch!</h2>
-                <p class="onboarding-subtitle">Discover your next favorite Disney content</p>
+                <p class="onboarding-subtitle">Swipe a few titles to personalize your recommendations</p>
+                <p class="onboarding-subtext">We'll learn your taste as you swipe.</p>
 
                 <div class="onboarding-steps">
                     <div class="onboarding-step">
@@ -72,7 +72,7 @@
                             </svg>
                         </div>
                         <h3>Swipe Left</h3>
-                        <p>Remove from recommendations</p>
+                        <p>Show fewer like this</p>
                     </div>
 
                     <div class="onboarding-step">
@@ -86,7 +86,7 @@
                     </div>
                 </div>
 
-                <button id="start-btn" class="start-btn">Start Swiping</button>
+                <button id="start-btn" class="start-btn">Let's Go</button>
             </div>
         </div>
 
@@ -145,6 +145,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=1.3"></script>
+    <script src="app.js?v=1.4"></script>
 </body>
 </html>
