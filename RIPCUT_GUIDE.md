@@ -15,7 +15,7 @@ Hulu standard art content uses a single horizontal image with a mood-matched gra
 2. **No titleImage**: Title displayed via gradient fallback or info section
 
 ### Hulu Content—Poster Vertical (with Title Treatment)
-Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ format:
+Hulu poster-vertical content uses vertical posters, similar to Disney+ format:
 1. **Background Image**: Vertical poster artwork
 2. **Title Treatment**: Logo/title overlay positioned at the bottom
 
@@ -36,7 +36,7 @@ Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ form
 }
 ```
 
-### Disney+ Modern Format (IDs 1-10, with title treatment)
+### Disney+ Modern Format (IDs 1-15, 31-40, with title treatment)
 ```javascript
 {
     id: 1,
@@ -51,7 +51,7 @@ Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ form
 }
 ```
 
-### Hulu Standard Art Format (IDs 101-115, 16:9 letterbox)
+### Hulu Standard Art Format (IDs 101, 102, 104, 106, 108-110, 112-114, 16:9 letterbox)
 ```javascript
 {
     id: 101,
@@ -65,7 +65,7 @@ Newer Hulu Originals (IDs 116-120) use vertical posters, similar to Disney+ form
 }
 ```
 
-### Hulu Poster Vertical Format (IDs 116-120, with title treatment)
+### Hulu Poster Vertical Format (IDs 103, 105, 107, 111, 115-128, with title treatment)
 ```javascript
 {
     id: 116,
@@ -92,7 +92,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `label=poster_vertical_080` - Image label for vertical poster format
 - `width=381` - Image width in pixels (1080p standard)
 
-### Disney+ Background Image—Modern (IDs 1-10)
+### Disney+ Background Image—Modern (IDs 1-15, 31-40)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=poster_vertical_080&width=800
 ```
@@ -104,9 +104,9 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 
 **Label Variations for Disney+ Originals:**
 - `poster_vertical_080` - Standard Disney+ content
-- `poster_vertical_disney-original_080` - Disney+ Original series (e.g., Dancing with the Stars, Animals Up Close)
+- `poster_vertical_disney-original_080` - Disney+ Original series (e.g., Dancing with the Stars, Wonder Man)
 
-### Hulu Background Image—Standard Art (IDs 101-115)
+### Hulu Background Image—Standard Art (IDs 101, 102, 104, 106, 108-110, 112-114)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=standard_art_178&width=800
 ```
@@ -120,18 +120,25 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 - `standard_art_178` - Generic
 - `standard_art_abc_178` - ABC content (Abbott Elementary, Grey's Anatomy, 9-1-1, etc.)
 - `standard_art_fox_178` - FOX content (Bob's Burgers, Fear Factor)
-- `standard_art_hulu-original-series_178` - Hulu Originals 16:9 art (Mormon Wives, Tell Me Lies, etc.)
+- `standard_art_hulu-original-series_178` - Hulu Originals 16:9 art (Tell Me Lies)
 - `standard_art_cartoon-network_178` - Cartoon Network (Amazing World of Gumball)
 
-### Hulu Background Image—Poster Vertical (IDs 116-120)
+### Hulu Background Image—Poster Vertical (IDs 103, 105, 107, 111, 115-128)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800
 ```
 
 **Parameters:**
 - `format=webp` - WebP format
-- `label=poster_vertical_hulu-original-series_080` - Hulu Original vertical poster label
+- `label=poster_vertical_*_080` - Network-branded vertical poster label
 - `width=800` - Full width for quality display
+
+**Label Variations by Network/Brand:**
+- `poster_vertical_hulu-original-series_080` - Hulu Original series (The Beauty, The Bear, Paradise, etc.)
+- `poster_vertical_abc_080` - ABC content (High Potential, Will Trent, Shifting Gears)
+- `poster_vertical_fox_080` - FOX content (Best Medicine)
+- `poster_vertical_fx_080` - FX content (The Americans)
+- `poster_vertical_080` - Generic (The Golden Girls, upgraded from standard art)
 
 ### Title Treatment Image—Classic (IDs 16-30)
 ```
@@ -141,7 +148,7 @@ https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIAN
 **Parameters:**
 - `max=339|162` - Max width|height in pixels (maintains aspect ratio)
 
-### Title Treatment Image—Modern (IDs 1-10, 116-120)
+### Title Treatment Image—Modern (IDs 1-15, 31-40, 103, 105, 107, 111, 115-128)
 ```
 https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/[VARIANT_ID]/trim?format=webp&max=800%7C450
 ```
@@ -232,9 +239,12 @@ The app follows Disney's standardized RipCut API parameters:
 
 | Label | Platform | Usage |
 |-------|----------|-------|
-| `poster_vertical_080` | Disney+ | Standard vertical poster |
+| `poster_vertical_080` | Disney+ / Generic | Standard vertical poster |
 | `poster_vertical_disney-original_080` | Disney+ | Disney+ Original content |
 | `poster_vertical_hulu-original-series_080` | Hulu | Hulu Original vertical poster |
+| `poster_vertical_abc_080` | Hulu (ABC) | ABC network vertical poster |
+| `poster_vertical_fox_080` | Hulu (FOX) | FOX network vertical poster |
+| `poster_vertical_fx_080` | Hulu (FX) | FX network vertical poster |
 
 ### Standard Art Labels (16:9 Format)
 
@@ -248,7 +258,7 @@ The app follows Disney's standardized RipCut API parameters:
 
 ### Endpoints and Parameters
 
-| Parameter | Classic (IDs 16-30) | Modern (IDs 1-10, 116-120) | Standard Art (IDs 101-115) |
+| Parameter | Classic (IDs 16-30) | Modern (IDs 1-15, 31-40, 103, 105, 107, 111, 115-128) | Standard Art (IDs 101, 102, 104, 106, 108-110, 112-114) |
 |-----------|--------------------|-----------------------------|---------------------------|
 | Endpoint | `/compose` | `/compose` | `/compose` |
 | Format | `jpeg` | `webp` | `webp` |
@@ -390,9 +400,9 @@ For each title in `contentData`:
 
 ## Current Status
 
-The app contains **45 titles**:
-- **25 Disney+ titles** (IDs 1-10, 16-30): Vertical posters with title treatments
-- **15 Hulu standard art titles** (IDs 101-115): 16:9 letterbox with mood gradients
-- **5 Hulu poster titles** (IDs 116-120): Vertical posters with title treatments
+The app contains **68 titles**:
+- **40 Disney+ titles** (IDs 1-15, 16-30, 31-40): Vertical posters with title treatments
+- **10 Hulu standard art titles** (IDs 101, 102, 104, 106, 108-110, 112-114): 16:9 letterbox with mood gradients
+- **18 Hulu poster titles** (IDs 103, 105, 107, 111, 115-128): Vertical posters with title treatments
 
 All variant IDs are configured and working. Add new content by following the patterns above.

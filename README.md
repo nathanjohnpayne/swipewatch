@@ -14,22 +14,25 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 ### Content Management
 - **Session-based rotation**: 10 tiles per session
 - **Smart tracking**: Tiles don't repeat until all content has been shown
-- **45 total titles**: 25 Disney+ and 20 Hulu titles
+- **68 total titles**: 40 Disney+ and 28 Hulu titles
 - **Dynamic shuffling**: Random order each session via Fisher-Yates algorithm
 - **Partial sessions**: If fewer than 10 unshown items remain, shows all remaining
 
 ### Interactive Elements
-- Smooth drag-and-drop card animations with rotation
-- Visual swipe indicators ("NOPE", "LIKE", "Watchlist")
+- Smooth drag-and-drop card animations with rotation and dynamic shadow
+- Continuous swipe indicators with progressive opacity scaling
 - Action buttons for click-to-swipe functionality
-- Progress bar and counter (X/10 per session)
+- Progress bar with semantic label ("X of N recommendations")
 - Card stack with depth effect (3-card preload)
-- Onboarding tutorial on first visit
+- Onboarding tutorial on first visit with gesture demo
+- Idle breathing animation after 4s of inactivity
+- Post-swipe toast feedback ("Learning your taste...")
 
 ### Gamification
-- **Disney Coins**: Earn 1 coin per swipe
-- End screen showing total coins earned
-- Statistics breakdown (liked, super liked, passed)
+- **Disney Coins**: Earn 1 coin per swipe, persistent bank across sessions
+- **Discovery Modes**: Spend 25 coins to unlock curated batches (Hidden Gems, Award Winners, Nature & Discovery, New & Trending)
+- End screen with count-up animation, session summary, and rotating CTA
+- Full pool reset with "Start Fresh" when all 68 titles shown
 
 ### User Experience
 - Fully responsive design (mobile, tablet, desktop, landscape)
@@ -48,7 +51,7 @@ Visit https://swipewatch.web.app
 1. Open `index.html` in a web browser
 2. Complete the onboarding tutorial
 3. Start swiping through 10 cards per session
-4. Track your Disney Coins on the end screen
+4. Earn Disney Coins and unlock discovery modes
 
 ### Firebase Deployment
 ```bash
@@ -62,9 +65,9 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 ## How It Works
 
 ### Session Management
-- Each session shows 10 random tiles from a pool of 45
+- Each session shows 10 random tiles from a pool of 68
 - Content IDs are tracked in localStorage
-- Once all 45 titles have been shown, the cycle resets
+- Once all 68 titles have been shown, the cycle resets
 - If fewer than 10 remain unshown, a partial session shows all remaining
 - Ensures users see all content before repeats
 
@@ -72,7 +75,7 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 - **Left swipe** (Dislike): Remove from recommendations—requires 100px horizontal drag
 - **Right swipe** (Like): Get more recommendations like this—requires 100px horizontal drag
 - **Up swipe** (Super Like): Add to your watchlist—requires 100px vertical drag
-- Visual indicators appear at 50px drag distance
+- Indicator opacity scales continuously from 20px drag distance
 
 ### Controls
 - **Drag cards**: Click/touch and drag in any direction
@@ -83,10 +86,11 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 
 ### Statistics & Rewards
 The end screen displays:
-- **Disney Coins Earned**: Total swipes (1 coin per swipe)
+- **Disney Coins Earned**: Total swipes (1 coin per swipe), persistent bank
 - Liked count (right swipes)
 - Super Liked count (up swipes)
-- Passed count (left swipes)
+- Skipped count (left swipes)
+- Discovery mode unlock button (25 coins)
 
 ## Content Structure
 
@@ -105,7 +109,7 @@ The end screen displays:
 }
 ```
 
-### Disney+ Content—Modern Format (IDs 1-10)
+### Disney+ Content—Modern Format (IDs 1-15, 31-40)
 ```javascript
 {
     id: 1,
@@ -120,21 +124,21 @@ The end screen displays:
 }
 ```
 
-### Hulu Content—Standard Art Letterbox (IDs 101-115)
+### Hulu Content—Standard Art Letterbox (IDs 101, 102, 104, 106, 108-110, 112-114)
 ```javascript
 {
-    id: 103,
-    title: "The Secret Lives of Mormon Wives",
-    type: "Hulu Original Series",
-    description: "An intimate look into the lives...",
-    background: "https://disney.images.edge.bamgrid.com/.../compose?format=webp&label=standard_art_hulu-original-series_178&width=800",
-    color: "#0ea5e9",
-    year: "2024",
-    genres: "Reality, Hulu Original"
+    id: 101,
+    title: "Family Guy",
+    type: "Series",
+    description: "The adventures of the Griffin family...",
+    background: "https://disney.images.edge.bamgrid.com/.../compose?format=webp&label=standard_art_178&width=800",
+    color: "#1e3a8a",
+    year: "1999",
+    genres: "Animation, Comedy"
 }
 ```
 
-### Hulu Content—Poster Vertical (IDs 116-120)
+### Hulu Content—Poster Vertical (IDs 103, 105, 107, 111, 115-128)
 ```javascript
 {
     id: 117,
@@ -204,9 +208,9 @@ For production integration, the app provides hooks for:
 
 ```
 Swipe Watch/
-├── index.html          # Main HTML structure with onboarding (150 lines)
-├── styles.css          # All styling, animations, and responsive design (960 lines)
-├── app.js              # Application logic, swipe handling, session management (890 lines)
+├── index.html          # Main HTML structure with onboarding (171 lines)
+├── styles.css          # All styling, animations, and responsive design (1281 lines)
+├── app.js              # Application logic, swipe handling, session management (1431 lines)
 ├── disney-coin.png     # Disney Coins reward image
 ├── firebase.json       # Firebase Hosting configuration (no-cache headers)
 ├── .firebaserc         # Firebase project configuration
@@ -223,31 +227,37 @@ Swipe Watch/
 - **No build step**: Static HTML/CSS/JS
 - **Hosting**: Firebase Hosting with CDN
 - **Analytics**: Google Analytics 4 (GA4) event tracking
-- **Asset Versioning**: CSS and JS loaded with `?v=1.3` cache-busting params
+- **Asset Versioning**: CSS and JS loaded with `?v=1.6` cache-busting params
 
 ### Features Implementation
 - **Gesture detection**: Custom touch/mouse event handling with `passive: false`
-- **Indicator threshold**: 50px drag shows direction, 100px triggers action
+- **Continuous indicators**: Opacity scales from 0 to 1 proportional to drag (20–100px), with scale boost past 50%
 - **Card rotation**: Proportional to horizontal drag (`deltaX * 0.1` degrees)
+- **Dynamic shadow**: Box shadow shifts opposite to drag vector during drag
 - **Animations**: CSS transitions with 300ms card exit
 - **Responsive**: Five breakpoints—1024px (desktop), 768px (tablet), 480px (mobile), 360px (small mobile), 600px height + landscape
 - **Session management**: localStorage for tracking shown content
 - **Fisher-Yates shuffle**: Random content ordering per session
-- **Progress tracking**: Real-time progress bar and counter
+- **Progress tracking**: Semantic progress bar with label
 - **Card preloading**: 3 cards rendered for visual depth effect
 - **Image fallback**: Automatic gradient cards via `onerror` handlers when images fail
 - **Color manipulation**: `adjustColor()` darkens base colors for gradient depth
 - **No-cache deployment**: Instant updates via Firebase headers
+- **Idle pulse**: Breathing animation on active card after 4s inactivity
+- **Gesture demo**: One-time nudge animation on first visit
+- **Toast feedback**: Transient "Learning your taste..." toast after each swipe
 
 ### Browser Storage
 - `swipewatch_shown_content`: Array of content IDs already shown
 - `swipewatch_onboarding_completed`: Boolean flag for onboarding state
+- `swipewatch_coin_bank`: Persistent coin bank total
+- `swipewatch_gesture_demo`: Session-scoped gesture demo flag
 
 ## Content Library
 
-### Current Content (45 titles)
+### Current Content (68 titles)
 
-#### Disney+ Titles (25)
+#### Disney+ Titles (40)
 
 | ID | Title | Type | Year | Genres |
 |----|-------|------|------|--------|
@@ -261,6 +271,11 @@ Swipe Watch/
 | 8 | Lost Treasures of Egypt | Series | 2019 | History, Docuseries |
 | 9 | Animals Up Close with Bertie Gregory | Disney+ Original | 2023 | Action and Adventure, Animals & Nature |
 | 10 | America's National Parks | Series | 2015 | Animals & Nature, Docuseries |
+| 11 | The Beatles: Get Back | Disney+ Original | 2021 | History, Music |
+| 12 | Tucci in Italy | Series | 2025 | Lifestyle, Docuseries |
+| 13 | Incas: The Rise and Fall | Series | 2025 | History, Docuseries |
+| 14 | The Suspicions of Mr Whicher | Series | 2013 | Drama, History |
+| 15 | Fringe | Series | 2008 | Drama, Adventure |
 | 16 | Beauty and the Beast | Movie | 1991 | Animation, Romance |
 | 17 | Gordon Ramsay: Uncharted | Series | 2019 | Action and Adventure, Lifestyle |
 | 18 | Drain the Oceans | Series | 2018 | Documentaries, History |
@@ -276,8 +291,18 @@ Swipe Watch/
 | 28 | Cinderella | Movie | 1950 | Animation, Romance |
 | 29 | Dumbo | Movie | 1941 | Animation |
 | 30 | Lady and the Tramp | Movie | 1955 | Action and Adventure, Animation |
+| 31 | Strangest Things | Series | 2025 | History, Docuseries |
+| 32 | Modern Family | Series | 2009 | Sitcom, Comedy |
+| 33 | The Incredible Dr. Pol | Series | 2011 | Medical, Reality |
+| 34 | Wonder Man | Disney+ Original | 2026 | Super Heroes, Action and Adventure |
+| 35 | Scrubs | Series | 2001 | Drama, Medical |
+| 36 | Ella McCay | Movie | 2025 | Drama, Comedy |
+| 37 | Firefly | Series | 2002 | Western, Adventure |
+| 38 | The X-Files | Series | 1993 | Science Fiction, Drama |
+| 39 | Europe From Above | Series | 2024 | Documentaries, Docuseries |
+| 40 | History's Greatest Mysteries | Series | 2020 | Documentaries, History |
 
-#### Hulu Titles (20)
+#### Hulu Titles (28)
 
 | ID | Title | Type | Year | Genres |
 |----|-------|------|------|--------|
@@ -285,28 +310,36 @@ Swipe Watch/
 | 102 | Bob's Burgers | Series | 2011 | Animation, Comedy, FOX |
 | 103 | The Secret Lives of Mormon Wives | Hulu Original | 2024 | Reality, Hulu Original |
 | 104 | Abbott Elementary | Series | 2021 | Comedy, ABC |
-| 105 | The Golden Girls | Series | 1985 | Comedy, Classic |
+| 105 | The Golden Girls | Series | 1985 | Comedy |
 | 106 | Desperate Housewives | Series | 2004 | Drama, Mystery |
-| 107 | King of the Hill | Hulu Original | 1997 | Animation, Comedy |
+| 107 | King of the Hill | Hulu Original | 1997 | Comedy, Animation |
 | 108 | The Rookie | Series | 2018 | Action, Drama, ABC |
 | 109 | Grey's Anatomy | Series | 2005 | Medical Drama, ABC |
 | 110 | Tell Me Lies | Hulu Original | 2022 | Drama, Hulu Original |
-| 111 | High Potential | Series | 2024 | Crime, Drama, ABC |
+| 111 | High Potential | Series | 2024 | Drama, Comedy, ABC |
 | 112 | 9-1-1 | Series | 2018 | Action, Drama, ABC |
 | 113 | Fear Factor: House of Fear | Series | 2024 | Reality, FOX |
 | 114 | The Amazing World of Gumball | Series | 2011 | Animation, Comedy, Cartoon Network |
-| 115 | Will Trent | Series | 2023 | Crime, Drama, ABC |
+| 115 | Will Trent | Series | 2023 | Drama, Procedural, ABC |
 | 116 | The Beauty | Hulu Original | 2026 | Horror, Science Fiction, Hulu Original |
 | 117 | Only Murders in the Building | Hulu Original | 2021 | Drama, Mystery, Hulu Original |
-| 118 | Shogun | Hulu Original | 2024 | Drama, Action and Adventure, Hulu Original |
+| 118 | Shōgun | Hulu Original | 2024 | Drama, Action and Adventure, Hulu Original |
 | 119 | A Thousand Blows | Hulu Original | 2025 | Drama, History, Hulu Original |
 | 120 | The Handmaid's Tale | Hulu Original | 2017 | Drama, Thriller, Hulu Original |
+| 121 | The Bear | Hulu Original | 2022 | Drama, Comedy, Hulu Original |
+| 122 | Love Story: JFK Jr. & Carolyn Bessette | Hulu Original | 2026 | Drama, Romance, Hulu Original |
+| 123 | The Americans | Series | 2013 | Drama, History, FX |
+| 124 | Mid-Century Modern | Hulu Original | 2025 | Comedy, Hulu Original |
+| 125 | Best Medicine | Series | 2026 | Drama, Medical, FOX |
+| 126 | The Great | Hulu Original | 2020 | Drama, Comedy, Hulu Original |
+| 127 | Shifting Gears | Series | 2025 | Comedy, ABC |
+| 128 | Paradise | Hulu Original | 2025 | Drama, Action and Adventure, Hulu Original |
 
 ### Image Formats
 - **Disney+ vertical posters (IDs 16-30)**: 381px width, JPEG, layered with title treatment
-- **Disney+ vertical posters (IDs 1-10)**: 800px width, WebP, layered with title treatment
-- **Hulu 16:9 images (IDs 101-115)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
-- **Hulu vertical posters (IDs 116-120)**: 800px width, WebP, layered with title treatment
+- **Disney+ vertical posters (IDs 1-15, 31-40)**: 800px width, WebP, layered with title treatment
+- **Hulu 16:9 images (IDs 101, 102, 104, 106, 108-110, 112-114)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
+- **Hulu vertical posters (IDs 103, 105, 107, 111, 115-128)**: 800px width, WebP, layered with title treatment
 - Uses Disney's RipCut image delivery system for optimized loading
 
 ## Analytics & Tracking
@@ -317,6 +350,7 @@ Google Analytics 4 events tracked (category: "Card Interaction"):
 - `super_like`: Up swipe action with content title
 - `onboarding`: User completed onboarding tutorial
 - `restart`: User restarted session from end screen (includes total swipe count as value)
+- `unlock_mode`: User selected a discovery mode (includes mode name and remaining bank)
 
 ## Future Enhancements
 
@@ -325,7 +359,6 @@ Potential additions:
 - Machine learning feedback loop based on swipe patterns
 - User authentication and profile management
 - Persistent watchlists across sessions
-- Genre/mood filtering options
 - Deep links to Disney+ and Hulu apps
 - Social sharing of earned Disney Coins
 - Leaderboard system

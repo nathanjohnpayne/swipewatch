@@ -10,7 +10,7 @@ The app supports three image formats depending on content type:
 
 Two parameter styles exist—modern (preferred for new content) and classic:
 
-**Modern format (IDs 1-10):**
+**Modern format (IDs 1-15, 31-40):**
 ```javascript
 {
     id: 1,
@@ -40,7 +40,7 @@ Two parameter styles exist—modern (preferred for new content) and classic:
 }
 ```
 
-### Hulu Content—Standard Art (16:9 Letterbox, IDs 101-115)
+### Hulu Content—Standard Art (16:9 Letterbox, IDs 101, 102, 104, 106, 108-110, 112-114)
 ```javascript
 {
     id: 101,
@@ -54,7 +54,7 @@ Two parameter styles exist—modern (preferred for new content) and classic:
 }
 ```
 
-### Hulu Content—Poster Vertical (with Title Treatment, IDs 116-120)
+### Hulu Content—Poster Vertical (with Title Treatment, IDs 103, 105, 107, 111, 115-128)
 ```javascript
 {
     id: 116,
@@ -84,9 +84,16 @@ Two parameter styles exist—modern (preferred for new content) and classic:
 | `width` | `381` | `800` | `800` |
 | Title `max` | `339\|162` | `800\|450` | N/A |
 
-**Network-specific label variants:**
+**Network-specific poster_vertical label variants:**
+- `poster_vertical_080`—Generic / Disney+ standard
 - `poster_vertical_disney-original_080`—Disney+ Originals
 - `poster_vertical_hulu-original-series_080`—Hulu Originals (poster)
+- `poster_vertical_abc_080`—ABC network
+- `poster_vertical_fox_080`—FOX network
+- `poster_vertical_fx_080`—FX network
+
+**Network-specific standard_art label variants:**
+- `standard_art_178`—Generic
 - `standard_art_abc_178`—ABC network
 - `standard_art_fox_178`—FOX network
 - `standard_art_hulu-original-series_178`—Hulu Originals (16:9)
@@ -219,21 +226,24 @@ background: "posters/beauty-and-the-beast.jpg"
 
 ## Current Content
 
-The app currently contains **45 titles** with working RipCut URLs:
-- **25 Disney+ titles** (IDs 1-10, 16-30): Vertical posters with title treatments
-- **15 Hulu standard art titles** (IDs 101-115): 16:9 letterbox with mood gradients
-- **5 Hulu poster titles** (IDs 116-120): Vertical posters with title treatments
+The app currently contains **68 titles** with working RipCut URLs:
+- **40 Disney+ titles** (IDs 1-15, 16-30, 31-40): Vertical posters with title treatments
+- **10 Hulu standard art titles** (IDs 101, 102, 104, 106, 108-110, 112-114): 16:9 letterbox with mood gradients
+- **18 Hulu poster titles** (IDs 103, 105, 107, 111, 115-128): Vertical posters with title treatments
 
 **Featured Disney+ Content:**
 - Ocean with David Attenborough, The Beatles Anthology, Sherlock, Malcolm in the Middle
 - Beauty and the Beast, Mary Poppins, Cinderella, Fantasia, Dumbo
-- Tron: Ares, Dancing with the Stars, Gordon Ramsay: Uncharted
+- Tron: Ares, Wonder Man, Dancing with the Stars, Gordon Ramsay: Uncharted
+- Firefly, The X-Files, Scrubs, Fringe, Modern Family, Ella McCay
+- Europe From Above, History's Greatest Mysteries, Strangest Things
 - And more...
 
 **Featured Hulu Content:**
 - Family Guy, Bob's Burgers, Abbott Elementary, Grey's Anatomy
-- Only Murders in the Building, Shogun, The Handmaid's Tale
+- Only Murders in the Building, Shōgun, The Handmaid's Tale, The Bear
 - The Secret Lives of Mormon Wives, Tell Me Lies, A Thousand Blows
+- Paradise, The Great, The Americans, Mid-Century Modern
 - And more...
 
 **Fallback System:**
