@@ -28,7 +28,8 @@ const contentData = [
         title: "The Secret Lives of Mormon Wives",
         type: "Hulu Original Series",
         description: "An intimate look into the lives of Mormon influencers navigating faith, family, and friendship.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/5fbd0ba0-3044-4b0f-8955-06ac811189f6/compose?format=webp&label=standard_art_hulu-original-series_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c720d-0687-75d2-a633-6de8d1d84c39/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c720e-6a03-78f8-abcb-55024eac4d74/trim?format=webp&max=800%7C450",
         color: "#0ea5e9",
         year: "2024",
         genres: "Reality, Hulu Original"
@@ -48,10 +49,11 @@ const contentData = [
         title: "The Golden Girls",
         type: "Series",
         description: "Four older women share a home in Miami, navigating friendship, romance, and life's adventures together.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4dd1915f-bc3f-4bd5-8e0e-dd11a5639653/compose?format=webp&label=standard_art_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/d16a215d-0e8a-4f0b-be48-29e3c01c2c06/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/125358aa-0e23-41e5-8028-0e3e6d76952e/trim?format=webp&max=800%7C450",
         color: "#eab308",
         year: "1985",
-        genres: "Comedy, Classic"
+        genres: "Comedy"
     },
     {
         id: 106,
@@ -68,10 +70,11 @@ const contentData = [
         title: "King of the Hill",
         type: "Hulu Original Series",
         description: "Hank Hill and his family navigate life in small-town Texas with humor and heart.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/fb7ebd54-bb14-4339-a4bb-1da7c5d12839/compose?format=webp&label=standard_art_hulu-original-series_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/a19b69da-873f-4ff6-9b9f-d327716ca01b/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4e62a930-94e6-4c00-92cc-07062f83ff9d/trim?format=webp&max=800%7C450",
         color: "#f59e0b",
         year: "1997",
-        genres: "Animation, Comedy"
+        genres: "Comedy, Animation"
     },
     {
         id: 108,
@@ -108,10 +111,11 @@ const contentData = [
         title: "High Potential",
         type: "Series",
         description: "A brilliant cleaning lady uses her exceptional intellect to solve crimes alongside the LAPD.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8bb16716-fa3c-42a1-b90b-9422f64feadc/compose?format=webp&label=standard_art_abc_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/86c98a19-69bb-4579-a69e-855eda61a81f/compose?format=webp&label=poster_vertical_abc_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/5545beff-7a95-4203-8b43-1c6c97f90622/trim?format=webp&max=800%7C450",
         color: "#06b6d4",
         year: "2024",
-        genres: "Crime, Drama, ABC"
+        genres: "Drama, Comedy, ABC"
     },
     {
         id: 112,
@@ -148,10 +152,11 @@ const contentData = [
         title: "Will Trent",
         type: "Series",
         description: "A brilliant GBI agent with a troubled past uses his unique skills to solve Georgia's most complex crimes.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ae596-9bd3-707f-816c-ca7620d35c87/compose?format=webp&label=standard_art_abc_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ae5cb-7126-7727-bff1-4c0ebff2eb7f/compose?format=webp&label=poster_vertical_abc_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/259eae8b-af3b-4801-a525-8b6d804f0fde/trim?format=webp&max=800%7C450",
         color: "#1e40af",
         year: "2023",
-        genres: "Crime, Drama, ABC"
+        genres: "Drama, Procedural, ABC"
     },
     // Hulu Content with poster labels (require title overlay)
     {
@@ -203,7 +208,7 @@ const contentData = [
         title: "The Handmaid's Tale",
         type: "Hulu Original Series",
         description: "A woman forced into servitude in a totalitarian society fights to reunite with her daughter and find freedom in a dystopian future.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/7a33df87-e1f0-45b1-b239-477045c506f9/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c88c3-8ce8-792b-8270-dc428a0daf9e/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
         titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/e107ef89-2c26-4a62-9f1e-cb595cf356cd/trim?format=webp&max=800%7C450",
         color: "#991b1b",
         year: "2017",
@@ -263,6 +268,39 @@ const contentData = [
         color: "#1e40af",
         year: "2026",
         genres: "Drama, Medical, FOX"
+    },
+    {
+        id: 126,
+        title: "The Great",
+        type: "Hulu Original Series",
+        description: "A satirical comedy-drama following Catherine the Great's rise from outsider to the longest-reigning female ruler in Russian history.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/73d30f81-bd9c-4253-98e1-d8e70c6d63fd/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/611b087d-6e7f-40d5-8c97-705fbc730058/trim?format=webp&max=800%7C450",
+        color: "#7e22ce",
+        year: "2020",
+        genres: "Drama, Comedy, Hulu Original"
+    },
+    {
+        id: 127,
+        title: "Shifting Gears",
+        type: "Series",
+        description: "A stubborn master mechanic's life gets upended when his estranged daughter and her kids move into his garage-turned-home.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/bcd42178-82a1-4935-b635-5da0b52c5eac/compose?format=webp&label=poster_vertical_abc_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/17af09b0-e7b2-4346-a8e7-b81a38c4d843/trim?format=webp&max=800%7C450",
+        color: "#b45309",
+        year: "2025",
+        genres: "Comedy, ABC"
+    },
+    {
+        id: 128,
+        title: "Paradise",
+        type: "Hulu Original Series",
+        description: "A gripping thriller set in an exclusive community where a shocking murder threatens to unravel the carefully constructed lives of its powerful residents.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c058d-ae50-778b-89a4-30c0bb002cb2/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c05f0-13e6-7b35-a756-0b097036e872/trim?format=webp&max=800%7C450",
+        color: "#164e63",
+        year: "2025",
+        genres: "Drama, Action and Adventure, Hulu Original"
     },
     // Disney+ Content
     {
@@ -616,6 +654,94 @@ const contentData = [
         color: "#059669",
         year: "2009",
         genres: "Sitcom, Comedy"
+    },
+    {
+        id: 33,
+        title: "The Incredible Dr. Pol",
+        type: "Series",
+        description: "Follow the charismatic Dr. Jan Pol as he treats a wide variety of animals at his rural Michigan veterinary practice.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/f35956ee-ad2a-4edd-93e8-6e1853386e54/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ebe05eea-84cc-4f3f-ad7d-f370bb8bc239/trim?format=webp&max=800%7C450",
+        color: "#15803d",
+        year: "2011",
+        genres: "Medical, Reality"
+    },
+    {
+        id: 34,
+        title: "Wonder Man",
+        type: "Disney+ Original Series",
+        description: "A failed actor with extraordinary powers is thrust into the world of super heroes in this action-packed Marvel series.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c01f9-19e8-7e74-a736-19391c0d95c1/compose?format=webp&label=poster_vertical_disney-original_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ec0fa3d5-ed0c-4468-b940-1c819a06834d/trim?format=webp&max=800%7C450",
+        color: "#b91c1c",
+        year: "2026",
+        genres: "Super Heroes, Action and Adventure"
+    },
+    {
+        id: 35,
+        title: "Scrubs",
+        type: "Series",
+        description: "Young doctors navigate the chaotic world of medicine with humor, heart, and the occasional fantasy sequence at Sacred Heart Hospital.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ada77-ce09-7fb8-9106-3286300b13d1/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019ada78-d0c8-7ee9-9569-02eb2681e4e3/trim?format=webp&max=800%7C450",
+        color: "#0891b2",
+        year: "2001",
+        genres: "Drama, Medical"
+    },
+    {
+        id: 36,
+        title: "Ella McCay",
+        type: "Movie",
+        description: "A heartfelt drama-comedy following the journey of a young woman navigating life's unexpected twists with wit and resilience.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c2f51-f2ae-7909-9ad3-a0a734101960/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019be8b7-4c3e-78ba-8b36-6317c5bedb77/trim?format=webp&max=800%7C450",
+        color: "#d97706",
+        year: "2025",
+        genres: "Drama, Comedy"
+    },
+    {
+        id: 37,
+        title: "Firefly",
+        type: "Series",
+        description: "A ragtag crew aboard a small transport ship takes on any job to survive on the fringes of society in a future where the galaxy has been colonized.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/651f3664-251b-41ba-aeff-1dc70116df94/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/c15bcda7-82f7-462e-96f5-e86d2267ec43/trim?format=webp&max=800%7C450",
+        color: "#92400e",
+        year: "2002",
+        genres: "Western, Adventure"
+    },
+    {
+        id: 38,
+        title: "The X-Files",
+        type: "Series",
+        description: "Two FBI agents investigate unsolved cases involving paranormal phenomena, government conspiracies, and unexplained events.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c1fe4-619b-7df6-a929-b866f58d0a61/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/29e15ccd-70eb-4d0e-93b4-170fbab09653/trim?format=webp&max=800%7C450",
+        color: "#1e3a5f",
+        year: "1993",
+        genres: "Science Fiction, Drama"
+    },
+    {
+        id: 39,
+        title: "Europe From Above",
+        type: "Series",
+        description: "Stunning aerial footage reveals the breathtaking landscapes, architecture, and hidden wonders of Europe from a bird's-eye perspective.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/68937432-2d24-47a0-ad75-c3f45c10b79f/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/651a9835-35d7-415b-93e2-9503ad9fad02/trim?format=webp&max=800%7C450",
+        color: "#0369a1",
+        year: "2024",
+        genres: "Documentaries, Docuseries"
+    },
+    {
+        id: 40,
+        title: "History's Greatest Mysteries",
+        type: "Series",
+        description: "Delve into the world's most enduring unsolved mysteries, from ancient enigmas to modern-day puzzles, with new evidence and expert analysis.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/6a6e8f35-a5f6-4029-adb1-6874c3ef7682/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/80396652-6452-4f00-966b-a5f3db3b5762/trim?format=webp&max=800%7C450",
+        color: "#78350f",
+        year: "2020",
+        genres: "Documentaries, History"
     }
 ];
 
@@ -1003,6 +1129,11 @@ function swipeCard(card, direction) {
 
     card.style.opacity = '0';
 
+    // Increment coin bank live
+    coinBankTotal++;
+    saveCoinBank(coinBankTotal);
+    updateCoinBadge();
+
     // Sync progress bar with card exit animation
     currentIndex++;
     updateProgress();
@@ -1129,13 +1260,11 @@ function showEndScreen() {
     const sessionCoins = stats.liked + stats.superLiked + stats.disliked;
     const poolDone = isPoolExhausted();
 
-    // Update coin bank
-    coinBankTotal += sessionCoins;
-    saveCoinBank(coinBankTotal);
+    // Coin bank already updated live during swipes — just sync badge
     updateCoinBadge();
 
     // Rotating heading
-    const headings = ['Session Complete', 'Recommendations Updated', 'Your Taste Profile Updated'];
+    const headings = ['Session Complete', 'Recommendations Refined', 'Your Taste Profile Updated'];
     endHeading.textContent = headings[Math.floor(Math.random() * headings.length)];
     endSubheading.textContent = 'Based on your swipes, we\u2019ve refined your recommendations.';
 
@@ -1246,13 +1375,30 @@ function openUnlockModal() {
 
 function selectUnlockMode(mode) {
     activeMode = mode;
+    const startBank = coinBankTotal;
     coinBankTotal -= 25;
     saveCoinBank(coinBankTotal);
-    updateCoinBadge();
+    animateCoinTickDown(startBank, coinBankTotal);
     unlockModal.classList.add('hidden');
     showSwipeToast(`Rare Picks: ${mode.name} Unlocked`);
     trackEvent('unlock_mode', mode.name, coinBankTotal);
     init();
+}
+
+function animateCoinTickDown(from, to) {
+    const duration = 400;
+    const start = performance.now();
+
+    function tick(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = Math.round(from - (from - to) * eased);
+        coinBadgeCount.textContent = current;
+        if (progress < 1) requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
 }
 
 unlockCancelBtn.addEventListener('click', () => {
