@@ -132,9 +132,10 @@ const contentData = [
         title: "Fear Factor: House of Fear",
         type: "Series",
         description: "Contestants face their worst nightmares in extreme challenges for a chance to win big.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019adf59-da87-796c-be84-49fec5013b22/compose?format=webp&label=standard_art_fox_178&width=800",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b24a6-390c-74fc-8cbb-de46748807a9/compose?format=webp&label=poster_vertical_fox_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b24a6-76d7-7f59-ada9-8f13d7bda3e5/trim?format=webp&max=800%7C450",
         color: "#7c3aed",
-        year: "2024",
+        year: "2026",
         genres: "Reality, FOX"
     },
     {
@@ -301,6 +302,83 @@ const contentData = [
         color: "#164e63",
         year: "2025",
         genres: "Drama, Action and Adventure, Hulu Original"
+    },
+    {
+        id: 129,
+        title: "ER",
+        type: "Series",
+        description: "The lives, loves, and struggles of the doctors and nurses in a bustling Chicago emergency room unfold in this groundbreaking medical drama.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/3d1dd83c-e389-46ac-9002-94fd6dc38b25/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/e3309c16-0b04-4104-9df4-a34a28135804/trim?format=webp&max=800%7C450",
+        color: "#1e40af",
+        year: "1994",
+        genres: "Drama, Medical"
+    },
+    {
+        id: 130,
+        title: "The Lowdown",
+        type: "Series",
+        description: "A gritty FX drama exploring the underbelly of power, corruption, and survival in a world where nothing is as it seems.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/9bba637f-ac48-43a9-9934-0df7c65f0967/compose?format=webp&label=poster_vertical_fx_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/7aeb7ab1-8de0-4c93-9cc4-d79cf77ea7df/trim?format=webp&max=800%7C450",
+        color: "#374151",
+        year: "2025",
+        genres: "Drama, FX"
+    },
+    {
+        id: 131,
+        title: "Elementary",
+        type: "Series",
+        description: "A modern retelling of Sherlock Holmes set in New York City, where a recovering addict and former surgeon team up to solve the NYPD's toughest cases.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/a16bcc8a-465d-44dc-8668-7dc201ec4fa2/compose?format=webp&label=poster_vertical_cbs_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/fbeb9470-da27-43b2-be95-e72cd5ce59cc/trim?format=webp&max=800%7C450",
+        color: "#4b5563",
+        year: "2012",
+        genres: "Drama, Legal, CBS"
+    },
+    {
+        id: 132,
+        title: "In Vogue: The 90s",
+        type: "Hulu Original Series",
+        description: "A stylish docuseries chronicling the iconic fashion moments, cultural shifts, and influential figures that defined the glamorous world of 1990s Vogue.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/98ea8e4b-a809-4d27-b9ad-3c58fa2d5237/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4df918a6-fbfb-4516-a48c-d4d815eb0bb3/trim?format=webp&max=800%7C450",
+        color: "#831843",
+        year: "2024",
+        genres: "Docuseries, Hulu Original"
+    },
+    {
+        id: 133,
+        title: "Cheers",
+        type: "Series",
+        description: "The regulars of a Boston bar where everybody knows your name share laughs, love, and life in this beloved sitcom classic.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8ff57108-e5e5-4be9-b30e-e7311c5b4019/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ea5284b8-eded-465e-9db3-4ecc56e2a6c5/trim?format=webp&max=800%7C450",
+        color: "#92400e",
+        year: "1982",
+        genres: "Sitcom, Classics"
+    },
+    {
+        id: 134,
+        title: "The Mentalist",
+        type: "Series",
+        description: "A former psychic medium uses his keen powers of observation to help the California Bureau of Investigation solve serious crimes.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ab2e4653-60d7-4773-9f64-2f367d809589/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/5fb196ae-928c-413f-8941-d9b488a77953/trim?format=webp&max=800%7C450",
+        color: "#4c1d95",
+        year: "2008",
+        genres: "Drama, Adventure"
+    },
+    {
+        id: 135,
+        title: "M*A*S*H",
+        type: "Series",
+        description: "The doctors and staff of a mobile Army surgical hospital during the Korean War cope with the horrors of war through humor and compassion.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/bacb0306-5503-4353-8515-d4577368c6c1/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4e64f6e1-6b18-4c3f-91c5-63f6eb281f63/trim?format=webp&max=800%7C450",
+        color: "#3f6212",
+        year: "1972",
+        genres: "Drama, Medical"
     },
     // Disney+ Content
     {
@@ -742,6 +820,61 @@ const contentData = [
         color: "#78350f",
         year: "2020",
         genres: "Documentaries, History"
+    },
+    {
+        id: 41,
+        title: "The Fantastic Four: First Steps",
+        type: "Movie",
+        description: "Marvel's first family embarks on their origin story in a retro-futuristic 1960s setting, facing a cosmic threat that will test their newfound powers.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019a52a8-de93-7693-b8e2-0927e66e0b4f/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4ac814c6-b7ef-446e-915b-6126f9a35cd9/trim?format=webp&max=800%7C450",
+        color: "#1e40af",
+        year: "2025",
+        genres: "Super Heroes, Action and Adventure"
+    },
+    {
+        id: 42,
+        title: "Deadpool & Wolverine",
+        type: "Movie",
+        description: "The irreverent Deadpool teams up with a reluctant Wolverine for a multiverse-spanning adventure to save their world from annihilation.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/6ce1f5bd-92aa-4d3b-83d7-1d72c0fd3859/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/f1ef9c18-cf8a-40d1-886b-28ea1e650c73/trim?format=webp&max=800%7C450",
+        color: "#b91c1c",
+        year: "2024",
+        genres: "Super Heroes, Action and Adventure"
+    },
+    {
+        id: 43,
+        title: "The Roses",
+        type: "Movie",
+        description: "A comedic look at family dynamics and personal reinvention as the Rose family navigates love, loss, and unexpected new beginnings.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019a2cb4-3a75-7859-8b4c-5f2a996cb096/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019a2cb4-af0b-77cf-954a-14958d5c01e6/trim?format=webp&max=800%7C450",
+        color: "#be185d",
+        year: "2025",
+        genres: "Comedy"
+    },
+    {
+        id: 44,
+        title: "The Greeks",
+        type: "Series",
+        description: "An epic exploration of ancient Greek civilization, tracing the rise of democracy, philosophy, and culture that shaped the Western world.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b27e4-bf66-71f1-9a90-44f6a8ce9efd/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b27e4-b7b4-7c42-8083-ced346d1d73a/trim?format=webp&max=800%7C450",
+        color: "#1e3a5f",
+        year: "2016",
+        genres: "History, Docuseries"
+    },
+    {
+        id: 45,
+        title: "Arctic Ascent with Alex Honnold",
+        type: "Series",
+        description: "Free solo climber Alex Honnold tackles Greenland's towering ice walls while documenting the dramatic effects of climate change on Arctic glaciers.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/99aaba68-519f-4094-9e8b-209574a998aa/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/dc4bd9e0-7686-4a01-b7a7-191d714313d8/trim?format=webp&max=800%7C450",
+        color: "#0c4a6e",
+        year: "2024",
+        genres: "Action and Adventure, Animals & Nature"
     }
 ];
 

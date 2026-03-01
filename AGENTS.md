@@ -17,7 +17,7 @@ Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu c
 ```
 Swipe Watch/
 ├── index.html          # Main HTML structure with onboarding (171 lines)
-├── app.js              # Core application logic (1431 lines)
+├── app.js              # Core application logic (1564 lines)
 ├── styles.css          # All styling, animations, responsive design (1281 lines)
 ├── disney-coin.png     # Disney Coins reward image (used in end screen)
 ├── disney-dollar.jpg   # Unused asset (not referenced in code)
@@ -32,18 +32,18 @@ Swipe Watch/
 ## Key Concepts
 
 ### Content Types
-The content pool has **68 titles** across two platforms and multiple visual formats:
+The content pool has **80 titles** across two platforms and multiple visual formats:
 
-- **Disney+ Content** (40 items):
+- **Disney+ Content** (45 items):
   - IDs 1-15: Modern format (WebP, 800px width, `max=800|450`)
   - IDs 16-30: Classic format (JPEG, 381px width, `max=339|162`)
-  - IDs 31-40: Modern format (WebP, 800px width, `max=800|450`)
+  - IDs 31-45: Modern format (WebP, 800px width, `max=800|450`)
   - All use vertical posters with layered title treatments
   - IDs 7, 9, 11, 34 use `poster_vertical_disney-original_080` label
 
-- **Hulu Content** (28 items):
-  - IDs 101, 102, 104, 106, 108-110, 112-114: 16:9 letterbox with `standard_art_*_178` labels (10 items)
-  - IDs 103, 105, 107, 111, 115-128: Vertical posters with `poster_vertical_*_080` labels and title treatments (18 items)
+- **Hulu Content** (35 items):
+  - IDs 101, 102, 104, 106, 108-110, 112, 114: 16:9 letterbox with `standard_art_*_178` labels (9 items)
+  - IDs 103, 105, 107, 111, 113, 115-135: Vertical posters with `poster_vertical_*_080` labels and title treatments (26 items)
 
 ### Swipe Actions
 - **Right Swipe / Heart:** Like - get more recommendations like this
@@ -52,7 +52,7 @@ The content pool has **68 titles** across two platforms and multiple visual form
 
 ### Session Management
 - 10 tiles per session (configurable via `SESSION_SIZE`)
-- 68 total titles in content pool
+- 80 total titles in content pool
 - Smart rotation prevents repeats until all content shown
 - Partial sessions: if fewer than 10 unshown items remain, shows all remaining
 - localStorage tracks shown content IDs
@@ -92,7 +92,7 @@ firebase deploy
     genres: "Animation, Romance"
 }
 
-// Disney+ content—modern format (IDs 1-15, 31-40, with title treatment)
+// Disney+ content—modern format (IDs 1-15, 31-45, with title treatment)
 {
     id: 1,
     title: "Ocean with David Attenborough",
@@ -105,7 +105,7 @@ firebase deploy
     genres: "Documentaries, Animals & Nature"
 }
 
-// Hulu content—standard art letterbox (IDs 101, 102, 104, 106, 108-110, 112-114)
+// Hulu content—standard art letterbox (IDs 101, 102, 104, 106, 108-110, 112, 114)
 {
     id: 101,
     title: "Family Guy",
@@ -117,7 +117,7 @@ firebase deploy
     genres: "Animation, Comedy"
 }
 
-// Hulu content—poster vertical (IDs 103, 105, 107, 111, 115-128, with title treatment)
+// Hulu content—poster vertical (IDs 103, 105, 107, 111, 113, 115-135, with title treatment)
 {
     id: 116,
     title: "The Beauty",
@@ -215,6 +215,7 @@ let activeMode = null;  // Currently active discovery mode (set during unlock ba
 | `poster_vertical_abc_080` | Hulu (ABC) | WebP | ABC network vertical poster |
 | `poster_vertical_fox_080` | Hulu (FOX) | WebP | FOX network vertical poster |
 | `poster_vertical_fx_080` | Hulu (FX) | WebP | FX network vertical poster |
+| `poster_vertical_cbs_080` | Hulu (CBS) | WebP | CBS network vertical poster |
 | `standard_art_178` | Hulu | WebP | Generic 16:9 art |
 | `standard_art_abc_178` | Hulu (ABC) | WebP | ABC network 16:9 art |
 | `standard_art_fox_178` | Hulu (FOX) | WebP | FOX network 16:9 art |
@@ -223,7 +224,7 @@ let activeMode = null;  // Currently active discovery mode (set during unlock ba
 
 ### Title Treatments
 - Classic: `/trim?max=339|162` (IDs 16-30)
-- Modern: `/trim?format=webp&max=800|450` (IDs 1-15, 31-40, 103, 105, 107, 111, 115-128)
+- Modern: `/trim?format=webp&max=800|450` (IDs 1-15, 31-45, 103, 105, 107, 111, 113, 115-135)
 
 See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 

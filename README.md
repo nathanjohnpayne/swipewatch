@@ -14,7 +14,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 ### Content Management
 - **Session-based rotation**: 10 tiles per session
 - **Smart tracking**: Tiles don't repeat until all content has been shown
-- **68 total titles**: 40 Disney+ and 28 Hulu titles
+- **80 total titles**: 45 Disney+ and 35 Hulu titles
 - **Dynamic shuffling**: Random order each session via Fisher-Yates algorithm
 - **Partial sessions**: If fewer than 10 unshown items remain, shows all remaining
 
@@ -32,7 +32,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 - **Disney Coins**: Earn 1 coin per swipe, persistent bank across sessions
 - **Discovery Modes**: Spend 25 coins to unlock curated batches (Disney Vault, Streaming Originals, Nature & Discovery, New & Trending)
 - End screen with count-up animation, session summary, and rotating CTA
-- Full pool reset with "Start Fresh" when all 68 titles shown
+- Full pool reset with "Start Fresh" when all 80 titles shown
 
 ### User Experience
 - Fully responsive design (mobile, tablet, desktop, landscape)
@@ -65,9 +65,9 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 ## How It Works
 
 ### Session Management
-- Each session shows 10 random tiles from a pool of 68
+- Each session shows 10 random tiles from a pool of 80
 - Content IDs are tracked in localStorage
-- Once all 68 titles have been shown, the cycle resets
+- Once all 80 titles have been shown, the cycle resets
 - If fewer than 10 remain unshown, a partial session shows all remaining
 - Ensures users see all content before repeats
 
@@ -109,7 +109,7 @@ The end screen displays:
 }
 ```
 
-### Disney+ Content—Modern Format (IDs 1-15, 31-40)
+### Disney+ Content—Modern Format (IDs 1-15, 31-45)
 ```javascript
 {
     id: 1,
@@ -124,7 +124,7 @@ The end screen displays:
 }
 ```
 
-### Hulu Content—Standard Art Letterbox (IDs 101, 102, 104, 106, 108-110, 112-114)
+### Hulu Content—Standard Art Letterbox (IDs 101, 102, 104, 106, 108-110, 112, 114)
 ```javascript
 {
     id: 101,
@@ -138,7 +138,7 @@ The end screen displays:
 }
 ```
 
-### Hulu Content—Poster Vertical (IDs 103, 105, 107, 111, 115-128)
+### Hulu Content—Poster Vertical (IDs 103, 105, 107, 111, 113, 115-135)
 ```javascript
 {
     id: 117,
@@ -210,7 +210,7 @@ For production integration, the app provides hooks for:
 Swipe Watch/
 ├── index.html          # Main HTML structure with onboarding (171 lines)
 ├── styles.css          # All styling, animations, and responsive design (1281 lines)
-├── app.js              # Application logic, swipe handling, session management (1431 lines)
+├── app.js              # Application logic, swipe handling, session management (1564 lines)
 ├── disney-coin.png     # Disney Coins reward image
 ├── firebase.json       # Firebase Hosting configuration (no-cache headers)
 ├── .firebaserc         # Firebase project configuration
@@ -255,9 +255,9 @@ Swipe Watch/
 
 ## Content Library
 
-### Current Content (68 titles)
+### Current Content (80 titles)
 
-#### Disney+ Titles (40)
+#### Disney+ Titles (45)
 
 | ID | Title | Type | Year | Genres |
 |----|-------|------|------|--------|
@@ -301,8 +301,13 @@ Swipe Watch/
 | 38 | The X-Files | Series | 1993 | Science Fiction, Drama |
 | 39 | Europe From Above | Series | 2024 | Documentaries, Docuseries |
 | 40 | History's Greatest Mysteries | Series | 2020 | Documentaries, History |
+| 41 | The Fantastic Four: First Steps | Movie | 2025 | Super Heroes, Action and Adventure |
+| 42 | Deadpool & Wolverine | Movie | 2024 | Super Heroes, Action and Adventure |
+| 43 | The Roses | Series | 2025 | Drama, Comedy |
+| 44 | The Greeks | Series | 2016 | History, Docuseries |
+| 45 | Arctic Ascent with Alex Honnold | Series | 2024 | Action and Adventure, Docuseries |
 
-#### Hulu Titles (28)
+#### Hulu Titles (35)
 
 | ID | Title | Type | Year | Genres |
 |----|-------|------|------|--------|
@@ -318,7 +323,7 @@ Swipe Watch/
 | 110 | Tell Me Lies | Hulu Original | 2022 | Drama, Hulu Original |
 | 111 | High Potential | Series | 2024 | Drama, Comedy, ABC |
 | 112 | 9-1-1 | Series | 2018 | Action, Drama, ABC |
-| 113 | Fear Factor: House of Fear | Series | 2024 | Reality, FOX |
+| 113 | Fear Factor: House of Fear | Series | 2025 | Reality, FOX |
 | 114 | The Amazing World of Gumball | Series | 2011 | Animation, Comedy, Cartoon Network |
 | 115 | Will Trent | Series | 2023 | Drama, Procedural, ABC |
 | 116 | The Beauty | Hulu Original | 2026 | Horror, Science Fiction, Hulu Original |
@@ -334,12 +339,19 @@ Swipe Watch/
 | 126 | The Great | Hulu Original | 2020 | Drama, Comedy, Hulu Original |
 | 127 | Shifting Gears | Series | 2025 | Comedy, ABC |
 | 128 | Paradise | Hulu Original | 2025 | Drama, Action and Adventure, Hulu Original |
+| 129 | ER | Series | 1994 | Drama, Medical |
+| 130 | The Lowdown | Series | 2025 | Drama, FX |
+| 131 | Elementary | Series | 2012 | Drama, Procedural, CBS |
+| 132 | In Vogue: The 90s | Hulu Original | 2025 | Docuseries, Lifestyle, Hulu Original |
+| 133 | Cheers | Series | 1982 | Comedy, Classics |
+| 134 | The Mentalist | Series | 2008 | Drama, Procedural |
+| 135 | M*A*S*H | Series | 1972 | Comedy, Drama, Classics |
 
 ### Image Formats
 - **Disney+ vertical posters (IDs 16-30)**: 381px width, JPEG, layered with title treatment
-- **Disney+ vertical posters (IDs 1-15, 31-40)**: 800px width, WebP, layered with title treatment
-- **Hulu 16:9 images (IDs 101, 102, 104, 106, 108-110, 112-114)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
-- **Hulu vertical posters (IDs 103, 105, 107, 111, 115-128)**: 800px width, WebP, layered with title treatment
+- **Disney+ vertical posters (IDs 1-15, 31-45)**: 800px width, WebP, layered with title treatment
+- **Hulu 16:9 images (IDs 101, 102, 104, 106, 108-110, 112, 114)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
+- **Hulu vertical posters (IDs 103, 105, 107, 111, 113, 115-135)**: 800px width, WebP, layered with title treatment
 - Uses Disney's RipCut image delivery system for optimized loading
 
 ## Analytics & Tracking
