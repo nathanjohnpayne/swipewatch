@@ -30,7 +30,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 
 ### Gamification
 - **Disney Coins**: Earn 1 coin per swipe, persistent bank across sessions
-- **Discovery Modes**: Spend 25 coins to unlock curated batches (Hidden Gems, Award Winners, Nature & Discovery, New & Trending)
+- **Discovery Modes**: Spend 25 coins to unlock curated batches (Disney Vault, Streaming Originals, Nature & Discovery, New & Trending)
 - End screen with count-up animation, session summary, and rotating CTA
 - Full pool reset with "Start Fresh" when all 68 titles shown
 

@@ -183,17 +183,17 @@ All events use GA4 with category `"Card Interaction"`:
 | `super_like` | Up swipe | Content title | Current index |
 | `onboarding` | Click "Let's Go" | "User completed onboarding" | 0 |
 | `restart` | Click CTA on end screen | "User restarted the app" | Total swipe count |
-| `unlock_mode` | Select discovery mode in modal | Mode name (e.g. "Hidden Gems") | Remaining bank total |
+| `unlock_mode` | Select discovery mode in modal | Mode name (e.g. "Disney Vault") | Remaining bank total |
 
 ## Configuration
 
 ### Adjustable Constants
 ```javascript
 const SESSION_SIZE = 10;  // Tiles per session
-const DISCOVERY_MODES = [  // Coin-spend unlock modes
-    { id: 'hidden-gems', name: 'Hidden Gems', filter: year < 2000 or Classic/Anthology/Coming of Age },
-    { id: 'award-winners', name: 'Award Winners', filter: Drama AND (Hulu Original/FX/Mystery) },
-    { id: 'nature-discovery', name: 'Nature & Discovery', filter: Docuseries/Documentaries/Animals/History },
+const DISCOVERY_MODES = [  // Coin-spend unlock modes — aligned with poster guide label taxonomy
+    { id: 'disney-vault', name: 'Disney Vault', filter: IDs 16-30 (classic poster format) OR Disney+ Original type },
+    { id: 'streaming-originals', name: 'Streaming Originals', filter: Hulu Original type OR FX genre },
+    { id: 'nature-discovery', name: 'Nature & Discovery', filter: Docuseries/Documentaries/Animals & Nature/History/Lifestyle },
     { id: 'new-trending', name: 'New & Trending', filter: year >= 2025 }
 ];
 let activeMode = null;  // Currently active discovery mode (set during unlock batch, cleared on end screen)

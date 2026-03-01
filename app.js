@@ -761,30 +761,30 @@ let availableContent = [...contentData];
 let shownContent = [];
 let sessionContent = [];
 
-// Discovery modes for coin spend
+// Discovery modes for coin spend — categories aligned with poster guide label taxonomy
 const DISCOVERY_MODES = [
     {
-        id: 'hidden-gems',
-        name: 'Hidden Gems',
-        description: 'Classic and overlooked favorites',
-        filter: item => parseInt(item.year) < 2000 || /Classic|Anthology|Coming of Age/i.test(item.genres)
+        id: 'disney-vault',
+        name: 'Disney Vault',
+        description: 'Classic films and Disney+ Originals',
+        filter: item => (item.id >= 16 && item.id <= 30) || /Disney\+ Original/i.test(item.type)
     },
     {
-        id: 'award-winners',
-        name: 'Award Winners',
-        description: 'Prestige drama and critical favorites',
-        filter: item => /Drama/i.test(item.genres) && /Hulu Original|FX|Mystery/i.test(item.genres)
+        id: 'streaming-originals',
+        name: 'Streaming Originals',
+        description: 'Hulu Originals and FX prestige series',
+        filter: item => /Hulu Original/i.test(item.type) || /FX/i.test(item.genres)
     },
     {
         id: 'nature-discovery',
         name: 'Nature & Discovery',
         description: 'Documentaries, nature, and history',
-        filter: item => /Docuseries|Documentaries|Animals & Nature|History/i.test(item.genres)
+        filter: item => /Docuseries|Documentaries|Animals & Nature|History|Lifestyle/i.test(item.genres)
     },
     {
         id: 'new-trending',
         name: 'New & Trending',
-        description: 'The latest releases',
+        description: 'The latest 2025–2026 releases',
         filter: item => parseInt(item.year) >= 2025
     }
 ];
