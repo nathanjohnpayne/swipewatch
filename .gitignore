@@ -1,0 +1,5 @@
+.env
+*.key
+service-account.json
+firebase-adminsdk*.json
+RIPCUT_GUIDE.md
