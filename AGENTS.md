@@ -79,6 +79,10 @@ op-firebase-deploy --only hosting   # hosting only
 
 The script reads ADC credentials from 1Password (`Private/GCP ADC`), auto-detects the project from `.firebaserc`, and cleans up credentials on exit.
 
+`op-firebase-deploy` checks `Private/Firebase Deploy - swipewatch` first, then falls back to `Private/GCP ADC`.
+
+**First-time setup:** `op-firebase-setup swipewatch` creates `firebase-deployer@swipewatch.iam.gserviceaccount.com`, grants deploy roles, and stores the key in 1Password.
+
 **Token renewal:** The ADC refresh token has no fixed expiry but is revoked on Google password change, explicit revocation, or 6 months of inactivity. If deploys fail with `invalid_grant`, renew:
 
 ```bash
@@ -92,6 +96,7 @@ op item edit "GCP ADC" --vault Private \
 - This repo currently has no Firebase client config or API keys. Keep it that way unless a future feature genuinely needs one.
 - Do not commit API keys, service-account JSON, or ADC credentials. If client-side keys are ever added later, keep them in ignored config and apply browser restrictions in Google Cloud.
 - If the deploy credential stored in `Private/GCP ADC` is exposed, rerun `gcloud auth application-default login --project=swipewatch`, overwrite the 1Password item, and revoke the old Google credential.
+- If a future API or service needs secrets, commit only template files with `op://Private/<item>/<field>` references and resolve them into gitignored runtime files with `op inject`.
 
 ## Architecture & Patterns
 

@@ -55,9 +55,16 @@ Visit https://swipewatch.web.app
 
 ### Firebase Deployment
 ```bash
-firebase login
-firebase use swipewatch
-firebase deploy
+# Install deploy tooling once
+npm install -g firebase-tools
+# Install Google Cloud SDK if gcloud is not already available
+# Install and sign in to 1Password CLI / desktop app for deploys
+
+# One-time per maintainer/project
+op-firebase-setup swipewatch
+
+# Deploy
+op-firebase-deploy
 ```
 
 No build process or dependencies required - just HTML, CSS, and vanilla JavaScript!
@@ -67,6 +74,7 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 - This repo currently has no Firebase client config or API keys. Do not add write-capable credentials to tracked HTML or JavaScript.
 - If a future feature needs a browser key, keep it in ignored config, apply browser restrictions in Google Cloud, and rotate/delete old keys if they are ever exposed publicly.
 - If the deploy credential stored in `Private/GCP ADC` is exposed, rerun `gcloud auth application-default login --project=swipewatch`, overwrite the 1Password item, and revoke the old Google credential.
+- Future APIs or services should use committed template files with `op://Private/<item>/<field>` references and `op inject` into gitignored runtime files during deploy.
 
 ## How It Works
 
