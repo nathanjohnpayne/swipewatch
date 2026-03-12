@@ -87,6 +87,12 @@ op item edit "GCP ADC" --vault Private \
   "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"
 ```
 
+### Credential Hygiene And Rotation
+
+- This repo currently has no Firebase client config or API keys. Keep it that way unless a future feature genuinely needs one.
+- Do not commit API keys, service-account JSON, or ADC credentials. If client-side keys are ever added later, keep them in ignored config and apply browser restrictions in Google Cloud.
+- If the deploy credential stored in `Private/GCP ADC` is exposed, rerun `gcloud auth application-default login --project=swipewatch`, overwrite the 1Password item, and revoke the old Google credential.
+
 ## Architecture & Patterns
 
 ### Data Model

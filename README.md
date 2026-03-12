@@ -62,6 +62,12 @@ firebase deploy
 
 No build process or dependencies required - just HTML, CSS, and vanilla JavaScript!
 
+### Credential Hygiene
+
+- This repo currently has no Firebase client config or API keys. Do not add write-capable credentials to tracked HTML or JavaScript.
+- If a future feature needs a browser key, keep it in ignored config, apply browser restrictions in Google Cloud, and rotate/delete old keys if they are ever exposed publicly.
+- If the deploy credential stored in `Private/GCP ADC` is exposed, rerun `gcloud auth application-default login --project=swipewatch`, overwrite the 1Password item, and revoke the old Google credential.
+
 ## How It Works
 
 ### Session Management
