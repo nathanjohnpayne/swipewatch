@@ -299,7 +299,7 @@ python -m http.server 8000
 - This repo has no Firebase client config or API keys committed. Keep it that way unless a future feature genuinely needs one.
 - Do not commit API keys, service-account JSON, or ADC credentials.
 - If client-side keys are ever added, keep them in ignored config files and apply browser restrictions in Google Cloud.
-- If the deploy credential in `Private/GCP ADC` is exposed, rerun `gcloud auth application-default login --project=swipewatch`, overwrite the 1Password item, and revoke the old Google credential.
+- If the deploy service account key (`Private/Firebase Deploy - swipewatch`) is compromised, rotate it with `op-firebase-setup swipewatch`.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`.
 
 ### Known Behaviors (Do Not Break)

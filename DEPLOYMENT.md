@@ -1,11 +1,13 @@
 # Deployment
 
+> This guide covers deploying the existing project. For **new project setup** (create Firebase project, `firebase init`, first-time credential setup), see `ai_agent_repo_template/DEPLOYMENT.md` in the sibling directory.
+
 ## Prerequisites
 
 - [Firebase CLI](https://firebase.google.com/docs/cli) installed globally
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) installed and signed in
 - `op-firebase-deploy` script on PATH (see First-Time Setup below)
-- Access to the `swipewatch` 1Password vault items: `Private/Firebase Deploy - swipewatch` and `Private/GCP ADC`
+- Access to the `Private` vault in 1Password: `Private/Firebase Deploy - swipewatch`
 
 ## Environments
 
@@ -85,10 +87,6 @@ When a CI system is connected, add `scripts/ci/` checks to the pipeline and use 
 
 - No API keys or secrets are committed to this repository. Keep it that way.
 - Service account credentials are stored exclusively in 1Password (`Private/Firebase Deploy - swipewatch`).
-- If the deploy credential (`Private/GCP ADC`) is exposed:
-  1. Run `gcloud auth application-default login --project=swipewatch`
-  2. Overwrite the 1Password item: `op item edit "GCP ADC" --vault Private "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"`
-  3. Revoke the old Google credential in the GCP Console
 - If a future feature requires client-side API keys, store them only in ignored config files and apply browser restrictions in Google Cloud. Never commit raw keys.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`.
 
