@@ -57,8 +57,15 @@ Visit https://swipewatch.web.app
 ```bash
 # Install deploy tooling once
 npm install -g firebase-tools
-# Install Google Cloud SDK if gcloud is not already available
-# Install and sign in to 1Password CLI / desktop app for deploys
+mkdir -p ~/.local/bin
+cp ../ai_agent_repo_template/scripts/gcloud/gcloud ~/.local/bin/gcloud
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-deploy ~/.local/bin/
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-setup ~/.local/bin/
+chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-firebase-setup
+hash -r
+
+# One-time per maintainer/machine
+gcloud auth application-default login
 
 # One-time per maintainer/project
 op-firebase-setup swipewatch
@@ -73,7 +80,7 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 
 - This repo currently has no Firebase client config or API keys. Do not add write-capable credentials to tracked HTML or JavaScript.
 - If a future feature needs a browser key, keep it in ignored config, apply browser restrictions in Google Cloud, and rotate/delete old keys if they are ever exposed publicly.
-- If the deploy service account key (`Private/Firebase Deploy - swipewatch`) is compromised, rotate it with `op-firebase-setup swipewatch`.
+- Deploy auth uses short-lived impersonated credentials. If local auth stops working, rerun `gcloud auth application-default login`; if IAM bindings drift, rerun `op-firebase-setup swipewatch`.
 - Future APIs or services should use committed template files with `op://Private/<item>/<field>` references and `op inject` into gitignored runtime files during deploy.
 
 ## How It Works

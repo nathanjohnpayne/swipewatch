@@ -299,7 +299,8 @@ python -m http.server 8000
 - This repo has no Firebase client config or API keys committed. Keep it that way unless a future feature genuinely needs one.
 - Do not commit API keys, service-account JSON, or ADC credentials.
 - If client-side keys are ever added, keep them in ignored config files and apply browser restrictions in Google Cloud.
-- If the deploy service account key (`Private/Firebase Deploy - swipewatch`) is compromised, rotate it with `op-firebase-setup swipewatch`.
+- Deploy auth is keyless: `op-firebase-deploy` creates short-lived impersonated credentials from local ADC or CI-provided external-account credentials.
+- If local auth expires, rerun `gcloud auth application-default login`. If impersonation bindings drift, rerun `op-firebase-setup swipewatch`.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`.
 
 ### Known Behaviors (Do Not Break)
@@ -351,11 +352,11 @@ No automated test framework is currently in use. This is a static site with no b
 
 ## 6. Deployment Process
 
-All deploys use `op-firebase-deploy` for non-interactive 1Password auth. Never run `firebase deploy` directly.
+All deploys use `op-firebase-deploy` for non-interactive service account impersonation. Never run `firebase deploy` directly.
 
 ```bash
 op-firebase-deploy                  # full deploy
 op-firebase-deploy --only hosting   # hosting only
 ```
 
-See `DEPLOYMENT.md` for full deployment instructions, first-time setup, rollback procedure, and secrets management.
+See `DEPLOYMENT.md` for the local ADC bootstrap, `gcloud` wrapper install, first-time impersonation setup, rollback procedure, and secrets management.
