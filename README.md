@@ -81,6 +81,7 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 - This repo currently has no Firebase client config or API keys. Do not add write-capable credentials to tracked HTML or JavaScript.
 - If a future feature needs a browser key, keep it in ignored config, apply browser restrictions in Google Cloud, and rotate/delete old keys if they are ever exposed publicly.
 - Deploy auth uses short-lived impersonated credentials. Routine deploys should use the shared `Private/GCP ADC` source credential through the 1Password CLI without browser login; if that credential itself needs rotation, refresh it once and update the item; if IAM bindings drift, rerun `op-firebase-setup swipewatch`.
+- The 1Password-first deploy-auth model is intentional for this repo. Do not switch it back to ADC-first or deploy-key-based guidance unless a human explicitly requests that change.
 - Future APIs or services should use committed template files with `op://Private/<item>/<field>` references and `op inject` into gitignored runtime files during deploy.
 
 ## How It Works
