@@ -1,6 +1,7 @@
 .firebase/
 .env
 .env.*
+!*.tpl
 *.key
 service-account.json
 firebase-adminsdk*.json
