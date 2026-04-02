@@ -327,9 +327,14 @@ jobs:
               pull_number: context.payload.pull_request.number,
             });
 
+            // Part 1: Only track APPROVED and CHANGES_REQUESTED states.
+            // COMMENTED reviews are informational and should not trigger
+            // disagreement detection.
+            const actionableStates = ['APPROVED', 'CHANGES_REQUESTED'];
             const latestByReviewer = {};
             for (const review of reviews.data) {
-              if (reviewerAccounts.includes(review.user.login)) {
+              if (reviewerAccounts.includes(review.user.login) &&
+                  actionableStates.includes(review.state)) {
                 latestByReviewer[review.user.login] = review.state;
               }
             }
@@ -352,6 +357,22 @@ jobs:
                 issue_number: context.payload.pull_request.number,
                 body: '**Agent disagreement detected.** One reviewer approved and another requested changes. Escalating to @nathanjohnpayne for human tiebreaker per REVIEW_POLICY.md.',
               });
+            }
+
+            // Part 2: Auto-clear needs-human-review label when disagreement
+            // resolves (e.g., all reviewers now agree).
+            if (!hasApproval || !hasChangesRequested) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  name: 'needs-human-review',
+                });
+              } catch (e) {
+                // Label may not exist on this PR — ignore 404
+                if (e.status !== 404) throw e;
+              }
             }
 
   # ──────────────────────────────────────────────
