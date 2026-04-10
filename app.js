@@ -380,6 +380,289 @@ const contentData = [
         year: "1972",
         genres: "Drama, Medical"
     },
+    {
+        id: 136,
+        title: "Andor",
+        type: "Disney+ Original",
+        description: "A thief-turned-rebel spy embarks on a dangerous journey that ignites the spark of revolution against the Galactic Empire in this gripping Star Wars saga.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b967d-dee0-7ed5-ac0d-e73dd7513fa7/compose?format=webp&label=poster_vertical_disney-original_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/11db94bc-e815-412f-8c36-a399cd79b58f/trim?format=webp&max=800%7C450",
+        color: "#1e3a5f",
+        year: "2022",
+        genres: "Action and Adventure, Science Fiction"
+    },
+    {
+        id: 137,
+        title: "Boston Legal",
+        type: "Series",
+        description: "Eccentric lawyers at a prestigious Boston firm tackle outrageous cases while navigating their unconventional friendship and the gray areas of the law.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/68d2eccd-c7ce-4e72-a84c-0a5bb06b2376/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/a9fdb49b-0e5d-4093-803e-0442faa7a470/trim?format=webp&max=800%7C450",
+        color: "#1e40af",
+        year: "2004",
+        genres: "Drama, Legal"
+    },
+    {
+        id: 138,
+        title: "Alone",
+        type: "Series",
+        description: "Survivalists are dropped in the wilderness with limited gear and must endure isolation and harsh conditions to be the last one standing.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019d0391-587e-7382-91cd-fd048b9d0648/compose?format=webp&label=poster_vertical_the-history-channel_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/db03345b-dfd7-455c-b394-e4a0587d22e9/trim?format=webp&max=800%7C450",
+        color: "#374151",
+        year: "2015",
+        genres: "Documentaries, Adventure, The HISTORY Channel"
+    },
+    {
+        id: 139,
+        title: "New Girl",
+        type: "Series",
+        description: "An offbeat teacher moves into a Los Angeles loft with three single guys, leading to unexpected friendships and hilarious misadventures.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/f6c99b1e-54f6-4a88-91cc-7aa124dfae0e/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#3b82f6",
+        year: "2011",
+        genres: "Comedy"
+    },
+    {
+        id: 140,
+        title: "The Simpsons",
+        type: "Series",
+        description: "America's favorite animated family navigates everyday life in the town of Springfield with sharp wit and satirical humor.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/46940a01-834d-4e89-9b09-18abdab69dd5/compose?format=webp&label=standard_art_vertical_disney-seasonal_071&width=800",
+        color: "#eab308",
+        year: "1989",
+        genres: "Animation, Comedy"
+    },
+    {
+        id: 141,
+        title: "How I Met Your Mother",
+        type: "Series",
+        description: "A father recounts to his children the journey of how he met their mother, weaving through years of love, friendship, and misadventures in New York City.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/0ad18e17-ec24-406e-9c54-b61fb629aff9/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#7c3aed",
+        year: "2005",
+        genres: "Comedy, Romance"
+    },
+    {
+        id: 142,
+        title: "Hannah Montana",
+        type: "Series",
+        description: "A teenager lives a double life as an ordinary schoolgirl by day and a famous pop star by night, keeping her identity secret from everyone.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/5221d963-9a28-40da-b451-5f85933907e8/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#ec4899",
+        year: "2006",
+        genres: "Comedy, Kids"
+    },
+    {
+        id: 143,
+        title: "The Kardashians",
+        type: "Hulu Original Series",
+        description: "The Kardashian-Jenner family opens their lives to cameras once again, navigating business empires, family dynamics, and life in the spotlight.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ba184293-0b86-4e05-9387-beb7c103250b/compose?format=webp&label=standard_art_vertical_hulu-original-series_071&width=800",
+        color: "#a855f7",
+        year: "2022",
+        genres: "Reality, Hulu Original"
+    },
+    {
+        id: 144,
+        title: "Criminal Minds",
+        type: "Series",
+        description: "An elite team of FBI profilers analyzes the country's most twisted criminal minds to anticipate their next moves before they strike again.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b95ed-f17b-7ec7-bf05-560cb7bbc965/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#991b1b",
+        year: "2005",
+        genres: "Drama, Procedural"
+    },
+    {
+        id: 145,
+        title: "Bones",
+        type: "Series",
+        description: "A forensic anthropologist and a cocky FBI agent team up to investigate cases where only bones remain, uncovering the stories the dead left behind.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8fb1e792-e59d-42f3-a232-74a55e24684a/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#78716c",
+        year: "2005",
+        genres: "Drama, Procedural"
+    },
+    {
+        id: 146,
+        title: "Secrets of the Bees",
+        type: "Series",
+        description: "An intimate look into the extraordinary hidden world of bees, revealing their complex societies and critical role in sustaining life on Earth.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c8cf5-b0c2-7572-8811-76a427a43be0/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#ca8a04",
+        year: "2025",
+        genres: "Documentaries, Animals & Nature"
+    },
+    {
+        id: 147,
+        title: "Futurama",
+        type: "Hulu Original Series",
+        description: "A pizza delivery guy accidentally frozen in 1999 wakes up in the year 3000 and finds work at an interplanetary delivery company.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/b76f8f97-dc1b-4273-b621-182bb867c925/compose?format=webp&label=standard_art_vertical_hulu-original-series_071&width=800",
+        color: "#dc2626",
+        year: "1999",
+        genres: "Animation, Comedy, Hulu Original"
+    },
+    {
+        id: 148,
+        title: "House",
+        type: "Series",
+        description: "A brilliant but misanthropic diagnostic doctor leads a team of specialists to solve medical mysteries that have stumped everyone else.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/8d31354f-a71a-4ec4-9ffa-a94f4670e8b1/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#1e40af",
+        year: "2004",
+        genres: "Drama, Medical"
+    },
+    {
+        id: 149,
+        title: "Implosion: The Titanic Sub Disaster",
+        type: "Series",
+        description: "The harrowing true story of the Titan submersible tragedy, exploring the events that led to the catastrophic implosion during a dive to the Titanic wreckage.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/0a5a83ec-82bd-43e9-a592-0d898df1b637/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#1e3a5f",
+        year: "2025",
+        genres: "Documentaries"
+    },
+    {
+        id: 150,
+        title: "Secrets of the Octopus",
+        type: "Series",
+        description: "Dive into the mysterious world of octopuses, revealing their remarkable intelligence, camouflage abilities, and surprising emotional depth.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/691e7c6a-5cd9-4f46-80db-8c873cb25101/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#0e7490",
+        year: "2024",
+        genres: "Documentaries, Animals & Nature"
+    },
+    {
+        id: 151,
+        title: "The Nanny",
+        type: "Series",
+        description: "A flashy woman from Flushing, Queens becomes the nanny to three children of a wealthy British Broadway producer, turning his household upside down.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c264e-17e8-7fef-92af-dbf8ab4f1a15/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#be185d",
+        year: "1993",
+        genres: "Comedy"
+    },
+    {
+        id: 152,
+        title: "Bluey",
+        type: "Series",
+        description: "An energetic Blue Heeler puppy lives with her family and turns everyday life into extraordinary adventures through creative play and imagination.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/2b126592-96e9-4036-b714-d57cc5424b40/compose?format=webp&label=standard_art_vertical_071&width=800",
+        color: "#2563eb",
+        year: "2018",
+        genres: "Animation, Kids"
+    },
+    {
+        id: 153,
+        title: "Pretty Baby: Brooke Shields",
+        type: "Hulu Original Series",
+        description: "An unflinching look at the life and career of Brooke Shields, examining society's complicated relationship with beauty, femininity, and fame.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/a84eb818-6aa3-4a2e-9a36-98fa9ae4d6a7/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/b5067245-b624-4c45-8e24-70b6ee10cbe2/trim?format=webp&max=800%7C450",
+        color: "#831843",
+        year: "2023",
+        genres: "Docuseries, Biography, Hulu Original"
+    },
+    {
+        id: 154,
+        title: "Secrets of the Elephants",
+        type: "Series",
+        description: "An awe-inspiring journey into the hidden world of elephants, revealing their remarkable intelligence, deep family bonds, and cultural traditions.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/905147f0-c983-4b5f-8aaf-27fe73c84794/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/edc04869-9d9e-4e21-a3d9-d8faaf901364/trim?format=webp&max=800%7C450",
+        color: "#92400e",
+        year: "2023",
+        genres: "Animals & Nature, Docuseries"
+    },
+    {
+        id: 155,
+        title: "America's National Parks (Classic)",
+        type: "Series",
+        description: "A breathtaking exploration of America's most iconic national parks, showcasing the stunning landscapes and diverse wildlife that make them treasures.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/7834f19d-fdd3-42b1-8841-cf4dec47d7dc/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ee3d16d4-f36f-40f2-8913-f04dfb0e703a/trim?format=webp&max=800%7C450",
+        color: "#15803d",
+        year: "2015",
+        genres: "Animals & Nature, Docuseries"
+    },
+    {
+        id: 156,
+        title: "The Faithful: Women of the Bible",
+        type: "Series",
+        description: "A dramatic retelling of the powerful stories of women from the Bible, exploring their faith, courage, and lasting impact on history.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019cdabb-8fe2-759b-8a84-3cead6ec1323/compose?format=webp&label=poster_vertical_fox_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019cdabb-adcc-7c9b-91e8-f56d30e702ee/trim?format=webp&max=800%7C450",
+        color: "#92400e",
+        year: "2026",
+        genres: "Drama, Religion & Spirituality, FOX"
+    },
+    {
+        id: 157,
+        title: "LIGHT & MAGIC",
+        type: "Disney+ Original",
+        description: "The untold story of Industrial Light & Magic, the legendary visual effects company founded by George Lucas that revolutionized filmmaking forever.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/22ef85cf-64a6-43c7-9e1a-bbfb49b3f403/compose?format=webp&label=poster_vertical_disney-original_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/a03e31d1-6571-43cb-aa58-f20ef948af3b/trim?format=webp&max=800%7C450",
+        color: "#1e3a5f",
+        year: "2022",
+        genres: "Docuseries"
+    },
+    {
+        id: 158,
+        title: "The Beach Boys",
+        type: "Disney+ Original",
+        description: "The definitive documentary about The Beach Boys, chronicling their rise from a garage band to global icons who defined the California sound.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/4655922c-9550-440d-8673-c34674191f8c/compose?format=webp&label=poster_vertical_disney-original_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/6d6c914a-9eab-46d8-8456-f8f16dd8fea4/trim?format=webp&max=800%7C450",
+        color: "#0369a1",
+        year: "2024",
+        genres: "Documentaries, Music"
+    },
+    {
+        id: 159,
+        title: "Friends Like These: The Murder of Skylar Neese",
+        type: "Hulu Original Series",
+        description: "A chilling true crime docuseries examining the shocking murder of teenager Skylar Neese by her two closest friends in a small West Virginia town.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c7665-16ea-7c23-b65c-95b9c9ba0faf/compose?format=webp&label=poster_vertical_hulu-original-series_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019c7665-e170-723b-9952-d924b718d457/trim?format=webp&max=800%7C450",
+        color: "#1c1917",
+        year: "2026",
+        genres: "Docuseries, Hulu Original"
+    },
+    {
+        id: 160,
+        title: "American Godfathers: The Five Families",
+        type: "Series",
+        description: "A gripping historical docuseries tracing the rise and fall of New York's five most powerful Mafia families and their iron grip on organized crime.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/556f8d21-8aec-45bd-9c35-0e94f033cafa/compose?format=webp&label=poster_vertical_the-history-channel_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/9172367d-ad2f-4079-b7ab-3f20c8ab25f9/trim?format=webp&max=800%7C450",
+        color: "#292524",
+        year: "2024",
+        genres: "History, Crime, The HISTORY Channel"
+    },
+    {
+        id: 161,
+        title: "Sunny Nights",
+        type: "Series",
+        description: "A drama-comedy exploring the vibrant nightlife scene and the colorful characters who come alive after dark.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b47e5-3c37-79b5-b9f1-493e4a4bcbb5/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b47e5-6838-7b1c-8d63-b9b7084f883b/trim?format=webp&max=800%7C450",
+        color: "#ca8a04",
+        year: "2025",
+        genres: "Drama, Comedy"
+    },
+    {
+        id: 162,
+        title: "National Parks: USA",
+        type: "Series",
+        description: "A stunning visual journey through America's national parks, capturing the extraordinary beauty and ecological diversity of these protected landscapes.",
+        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b27df-37b8-7a99-b116-b84c7888eb37/compose?format=webp&label=poster_vertical_080&width=800",
+        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/019b27df-363d-754d-b282-0872a8d15294/trim?format=webp&max=800%7C450",
+        color: "#166534",
+        year: "2024",
+        genres: "Animals & Nature, Docuseries"
+    },
     // Disney+ Content
     {
         id: 1,
