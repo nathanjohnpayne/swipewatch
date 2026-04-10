@@ -576,17 +576,6 @@ const contentData = [
         genres: "Animals & Nature, Docuseries"
     },
     {
-        id: 155,
-        title: "America's National Parks (Classic)",
-        type: "Series",
-        description: "A breathtaking exploration of America's most iconic national parks, showcasing the stunning landscapes and diverse wildlife that make them treasures.",
-        background: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/7834f19d-fdd3-42b1-8841-cf4dec47d7dc/compose?format=webp&label=poster_vertical_080&width=800",
-        titleImage: "https://disney.images.edge.bamgrid.com/ripcut-delivery/v2/variant/disney/ee3d16d4-f36f-40f2-8913-f04dfb0e703a/trim?format=webp&max=800%7C450",
-        color: "#15803d",
-        year: "2015",
-        genres: "Animals & Nature, Docuseries"
-    },
-    {
         id: 156,
         title: "The Faithful: Women of the Bible",
         type: "Series",
