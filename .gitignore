@@ -13,3 +13,31 @@ RIPCUT_GUIDE.md
 .claude/launch.json
 package-lock.json
 .DS_Store
+
+# Build artifacts
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Editor
+.vscode/
+!.vscode/extensions.json
+.idea/
+
+# AI / agents (local state and runtime artifacts)
+.claude/worktrees/
+.cursor/cache/
+.cursor/state/
+.cursor/plans/
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+
+# Misc
+tmp/
+.cache/
