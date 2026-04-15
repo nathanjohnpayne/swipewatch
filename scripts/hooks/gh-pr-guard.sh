@@ -159,30 +159,43 @@ fi
 #
 # Fails CLOSED on tokenization error (unmatched quote, bad escape).
 # An agent should fix the malformed command and retry.
-TOKENS_OUTPUT=""
-if ! TOKENS_OUTPUT=$(printf '%s' "$COMMAND" | python3 -c '
+#
+# python3 emits tokens NUL-delimited so bash's read -d '' can
+# preserve embedded newlines. The output goes via a tempfile
+# rather than $(...) command substitution because bash command
+# substitution silently strips NUL bytes from its capture buffer,
+# which would re-jam all tokens together. Earlier versions used
+# newline-delimited output via print(tok), which silently SPLIT
+# any token containing a literal newline (e.g., the body of a
+# `gh pr create --body "Authoring-Agent: claude\n## Self-Review
+# \nok"`) into multiple bash tokens. Codex caught the bash-side
+# split on nathanpaynedotcom propagation PR #180 round 5.
+TMP_TOKENS=$(mktemp)
+TMP_TOKENS_ERR=$(mktemp)
+trap 'rm -f "$TMP_TOKENS" "$TMP_TOKENS_ERR"' EXIT
+if ! printf '%s' "$COMMAND" | python3 -c '
 import sys, shlex
 try:
     cmd = sys.stdin.read()
     for tok in shlex.split(cmd):
-        print(tok)
+        sys.stdout.buffer.write(tok.encode("utf-8", errors="replace") + b"\x00")
 except ValueError as e:
     print(f"shlex error: {e}", file=sys.stderr)
     sys.exit(1)
-' 2>&1); then
+' > "$TMP_TOKENS" 2> "$TMP_TOKENS_ERR"; then
   echo "BLOCKED: gh-pr-guard could not tokenize the gh command (malformed shell quoting)." >&2
   echo "  command: $COMMAND" >&2
-  echo "  shlex error: $TOKENS_OUTPUT" >&2
+  echo "  shlex error: $(cat "$TMP_TOKENS_ERR")" >&2
   echo "  Fix the quoting and retry, or use BREAK_GLASS_ADMIN=1 + --admin." >&2
   exit 2
 fi
-# Portable read loop in lieu of bash 4+ `mapfile`. Empty lines
-# preserved so legitimate empty arg values like `--body ""` are
-# consumed correctly by downstream SKIP_NEXT_AS logic.
+# Read NUL-delimited tokens from the tempfile. `read -d ''` means
+# "read until NUL". Each iteration appends one whole token,
+# preserving any embedded newlines.
 TOKENS=()
-while IFS= read -r line; do
-  TOKENS+=("$line")
-done <<<"$TOKENS_OUTPUT"
+while IFS= read -r -d '' tok; do
+  TOKENS+=("$tok")
+done < "$TMP_TOKENS"
 
 # --- detect the pr subcommand, capturing any global -R/--repo ---
 #
