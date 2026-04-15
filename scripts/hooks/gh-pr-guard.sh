@@ -296,25 +296,19 @@ for i in "${!TOKENS[@]}"; do
     continue
   fi
 
-  # Capture inline env assignments regardless of state. Doing it
-  # here means a `CODEX_CLEARED=1 sudo gh pr merge 65` or even
-  # `cat foo; CODEX_CLEARED=1 gh pr merge 65` form still picks up
-  # the inline value when gh is eventually found.
-  case "$tok" in
-    CODEX_CLEARED=*)
-      INLINE_CODEX_CLEARED="${tok#CODEX_CLEARED=}"
-      ;;
-    BREAK_GLASS_ADMIN=*)
-      INLINE_BREAK_GLASS_ADMIN="${tok#BREAK_GLASS_ADMIN=}"
-      ;;
-  esac
-
   # Compound separators always reset us to command position,
   # whether we were in command position or skipping unrelated
   # args. Only standalone `&&` / `||` / `;` / `|` / `&` / `(`
   # tokens count — separators glommed onto adjacent words by
   # missing whitespace (e.g. `foo;`) are NOT detected, which is
   # an acceptable limitation for the agent flow.
+  #
+  # IMPORTANT: separator handling MUST run before the env-assignment
+  # capture below. Otherwise `echo CODEX_CLEARED=1 ; gh pr merge 65`
+  # would capture the literal `CODEX_CLEARED=1` arg of `echo` as a
+  # spoofed inline env var even though it never actually gets exported
+  # to the gh process. nathanpayne-codex caught this on swipewatch
+  # propagation PR #33 round 5 — privilege escalation potential.
   case "$tok" in
     "&&"|"||"|";"|"|"|"&"|"("|")")
       AT_COMMAND_POSITION=1
@@ -322,6 +316,25 @@ for i in "${!TOKENS[@]}"; do
       continue
       ;;
   esac
+
+  # Capture inline env assignments ONLY when AT_COMMAND_POSITION=1.
+  # Tokens in IN_UNRELATED_ARGS are arguments to an unrelated
+  # command (e.g., `echo BREAK_GLASS_ADMIN=1 ; gh pr merge --admin
+  # 65`) and do NOT export to the spawned gh process — capturing
+  # them would let an agent spoof guard variables by prefixing the
+  # command with an echo. Only assignments that are themselves in
+  # command position (e.g., `CODEX_CLEARED=1 gh pr merge 65` or
+  # `CODEX_CLEARED=1 sudo gh pr merge 65`) count.
+  if [ "$AT_COMMAND_POSITION" -eq 1 ]; then
+    case "$tok" in
+      CODEX_CLEARED=*)
+        INLINE_CODEX_CLEARED="${tok#CODEX_CLEARED=}"
+        ;;
+      BREAK_GLASS_ADMIN=*)
+        INLINE_BREAK_GLASS_ADMIN="${tok#BREAK_GLASS_ADMIN=}"
+        ;;
+    esac
+  fi
 
   if [ "$AT_COMMAND_POSITION" -eq 0 ]; then
     # Skipping arguments of an unrelated command. Stay until a
