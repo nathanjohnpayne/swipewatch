@@ -58,9 +58,9 @@ Visit https://swipewatch.web.app
 # Install deploy tooling once
 npm install -g firebase-tools
 mkdir -p ~/.local/bin
-cp ../ai_agent_repo_template/scripts/gcloud/gcloud ~/.local/bin/gcloud
-cp ../ai_agent_repo_template/scripts/firebase/op-firebase-deploy ~/.local/bin/
-cp ../ai_agent_repo_template/scripts/firebase/op-firebase-setup ~/.local/bin/
+cp ../mergepath/scripts/gcloud/gcloud ~/.local/bin/gcloud
+cp ../mergepath/scripts/firebase/op-firebase-deploy ~/.local/bin/
+cp ../mergepath/scripts/firebase/op-firebase-setup ~/.local/bin/
 chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-firebase-setup
 hash -r
 
