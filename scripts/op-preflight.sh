@@ -128,8 +128,30 @@ if $PURGE_ALL; then
   exit 0
 fi
 
-if [[ "$MODE" == "review" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
-  echo "Error: --agent is required for review, all, or --purge mode." >&2
+# Reject unknown --mode values BEFORE the --agent check so a typo like
+# `--mode deply` cannot bypass the `[[ "$MODE" == "review" || ... ]]`
+# guard and proceed with an empty $AGENT. Without this, the typo'd
+# value falls through to the mode-conditional blocks below — all of
+# which evaluate false — and the script silently no-ops while still
+# producing `$AGENT`-keyed paths the caller may rely on. Surfaced by
+# CodeRabbit on PR #45.
+case "$MODE" in
+  review|deploy|all) ;;
+  *)
+    echo "Error: unknown --mode '$MODE'. Valid: review, deploy, all." >&2
+    echo "Usage: eval \"\$(scripts/op-preflight.sh --agent claude --mode all)\"" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$MODE" == "review" || "$MODE" == "deploy" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
+  # $AGENT is required for deploy mode too because $ADC_TMPFILE
+  # (line ~149) is keyed by $AGENT — without it the path collapses to
+  # `op-preflight--adc.json`, so two agents both running `--mode deploy`
+  # overwrite each other's ADC cache. Same exposure exists for the
+  # session file. See PR feedback on #35 (Codex P2 round: "Require
+  # --agent before caching deploy credentials").
+  echo "Error: --agent is required for review, deploy, all, or --purge mode." >&2
   echo "Usage: eval \"\$(scripts/op-preflight.sh --agent claude --mode all)\"" >&2
   exit 1
 fi
