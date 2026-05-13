@@ -583,9 +583,8 @@ done
 7. Export the public key: `ssh-add -L | grep "{Agent}" > ~/.ssh/id_nathanpayne_{agent}.pub`
 8. Add a `Host github-{agent}` block to `~/.ssh/config` pointing at the new public key file.
 9. Add the identity to `available_reviewers` in each relevant repo's `.github/review-policy.yml`.
-10. Add the PAT as a repository secret (e.g., `{AGENT}_PAT`) for CI workflows.
-11. Configure the new agent's environment with both the `nathanjohnpayne` author credentials and the `nathanpayne-{agent}` reviewer credentials.
-12. The new agent follows the same workflow described above.
+10. Configure the new agent's environment with both the `nathanjohnpayne` author credentials and the `nathanpayne-{agent}` reviewer credentials. **Do not add the reviewer PAT as a repository secret** — Phase 2 internal review runs inside the authoring agent's own session, with the PAT read directly from 1Password (see `DEPLOYMENT.md` § "Do NOT add … as repo secrets" for the rationale).
+11. The new agent follows the same workflow described above.
 
 ## Template Usage
 

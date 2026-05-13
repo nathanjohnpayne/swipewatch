@@ -128,8 +128,14 @@ if $PURGE_ALL; then
   exit 0
 fi
 
-if [[ "$MODE" == "review" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
-  echo "Error: --agent is required for review, all, or --purge mode." >&2
+if [[ "$MODE" == "review" || "$MODE" == "deploy" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
+  # $AGENT is required for deploy mode too because $ADC_TMPFILE
+  # (line ~149) is keyed by $AGENT — without it the path collapses to
+  # `op-preflight--adc.json`, so two agents both running `--mode deploy`
+  # overwrite each other's ADC cache. Same exposure exists for the
+  # session file. See PR feedback on #35 (Codex P2 round: "Require
+  # --agent before caching deploy credentials").
+  echo "Error: --agent is required for review, deploy, all, or --purge mode." >&2
   echo "Usage: eval \"\$(scripts/op-preflight.sh --agent claude --mode all)\"" >&2
   exit 1
 fi
