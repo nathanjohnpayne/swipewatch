@@ -132,6 +132,17 @@ assert_eq "src/*.ts matches src/foo.ts (single segment)" "src/foo.ts" "$got"
 got=$(printf '%s\n' "src/a/b.ts" | bash "$MATCH" "src/*.ts")
 assert_eq "src/*.ts does NOT match nested src/a/b.ts" "" "$got"
 
+# `?` should match exactly one non-`/` character. Caught as missing
+# coverage by CodeRabbit on PR #45.
+got=$(printf '%s\n' "src/a.ts" | bash "$MATCH" "src/?.ts")
+assert_eq "single-? src/?.ts matches src/a.ts" "src/a.ts" "$got"
+
+got=$(printf '%s\n' "src/ab.ts" | bash "$MATCH" "src/?.ts")
+assert_eq "single-? src/?.ts does NOT match src/ab.ts (more than one char)" "" "$got"
+
+got=$(printf '%s\n' "src/a/b.ts" | bash "$MATCH" "src/?.ts")
+assert_eq "single-? src/?.ts does NOT match src/a/b.ts (crosses /)" "" "$got"
+
 # End-to-end: feed the parse script's output to the match script.
 # Simulates what the workflow does on a real PR diff. We avoid
 # `readarray` / `mapfile` so this runs under macOS's default

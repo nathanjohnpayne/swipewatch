@@ -128,6 +128,22 @@ if $PURGE_ALL; then
   exit 0
 fi
 
+# Reject unknown --mode values BEFORE the --agent check so a typo like
+# `--mode deply` cannot bypass the `[[ "$MODE" == "review" || ... ]]`
+# guard and proceed with an empty $AGENT. Without this, the typo'd
+# value falls through to the mode-conditional blocks below — all of
+# which evaluate false — and the script silently no-ops while still
+# producing `$AGENT`-keyed paths the caller may rely on. Surfaced by
+# CodeRabbit on PR #45.
+case "$MODE" in
+  review|deploy|all) ;;
+  *)
+    echo "Error: unknown --mode '$MODE'. Valid: review, deploy, all." >&2
+    echo "Usage: eval \"\$(scripts/op-preflight.sh --agent claude --mode all)\"" >&2
+    exit 1
+    ;;
+esac
+
 if [[ "$MODE" == "review" || "$MODE" == "deploy" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
   # $AGENT is required for deploy mode too because $ADC_TMPFILE
   # (line ~149) is keyed by $AGENT — without it the path collapses to
