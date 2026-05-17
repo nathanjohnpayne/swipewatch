@@ -1162,7 +1162,6 @@ function shuffleArray(array) {
 
 // Session management
 const SESSION_SIZE = 10;
-let availableContent = [...contentData];
 let shownContent = [];
 let sessionContent = [];
 
@@ -1462,7 +1461,7 @@ function addSwipeListeners(card) {
         }
     };
 
-    const handleEnd = (e) => {
+    const handleEnd = () => {
         if (!isDragging) return;
         isDragging = false;
 
@@ -1496,8 +1495,13 @@ function addSwipeListeners(card) {
 
 // Google Analytics event tracking
 function trackEvent(action, label, value) {
-    if (typeof gtag !== 'undefined') {
-        gtag('event', action, {
+    // gtag is the Google Analytics global, loaded by the inline GA snippet
+    // in index.html. Defensively access via globalThis so eslint's no-undef
+    // is satisfied without needing a globals declaration in eslint.config.js
+    // (gtag isn't part of the mergepath ESLint template's framework
+    // vocabulary; per-consumer GA-specific globals belong here).
+    if (typeof globalThis.gtag !== 'undefined') {
+        globalThis.gtag('event', action, {
             'event_category': 'Card Interaction',
             'event_label': label,
             'value': value
