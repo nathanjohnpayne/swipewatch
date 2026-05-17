@@ -1500,7 +1500,11 @@ function trackEvent(action, label, value) {
     // is satisfied without needing a globals declaration in eslint.config.js
     // (gtag isn't part of the mergepath ESLint template's framework
     // vocabulary; per-consumer GA-specific globals belong here).
-    if (typeof globalThis.gtag !== 'undefined') {
+    // Type-check against 'function' (not 'undefined') so a non-callable
+    // value at the same name — e.g., from a third-party script overriding
+    // it — doesn't throw at the invocation below (CodeRabbit Minor on
+    // mergepath#250's swipewatch canary PR).
+    if (typeof globalThis.gtag === 'function') {
         globalThis.gtag('event', action, {
             'event_category': 'Card Interaction',
             'event_label': label,
