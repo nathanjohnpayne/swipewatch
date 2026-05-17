@@ -2,10 +2,14 @@
   "name": "swipewatch",
   "private": true,
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "vitest": "^4.1.4",
-    "jsdom": "^29.0.2"
+    "jsdom": "^29.0.2",
+    "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "globals": "^16.0.0"
   }
 }

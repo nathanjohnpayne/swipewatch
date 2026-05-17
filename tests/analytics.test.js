@@ -111,6 +111,6 @@ describe('Analytics', () => {
   });
 
   it('guards analytics with typeof check', () => {
-    expect(appJs).toContain("typeof gtag !== 'undefined'");
+    expect(appJs).toContain("typeof globalThis.gtag === 'function'");
   });
 });
