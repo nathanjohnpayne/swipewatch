@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { runInNewContext } from 'vm';
 
 const appJs = readFileSync(resolve(__dirname, '../app.js'), 'utf-8');
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf-8');
@@ -110,7 +111,19 @@ describe('Analytics', () => {
     vi.useRealTimers();
   });
 
+  it('does not throw when globalThis is undefined', () => {
+    const trackEventSource = appJs.match(/function trackEvent[\s\S]*?\n}/)[0];
+
+    expect(() => {
+      runInNewContext(`
+        delete globalThis.globalThis;
+        ${trackEventSource}
+        trackEvent('like', 'Movie title', 1);
+      `, {});
+    }).not.toThrow();
+  });
+
   it('guards analytics with typeof check', () => {
-    expect(appJs).toContain("typeof globalThis.gtag === 'function'");
+    expect(appJs).toContain("typeof globalThis !== 'undefined' && typeof globalThis.gtag === 'function'");
   });
 });
