@@ -16,4 +16,4 @@ Google Analytics events are fired for card interactions, restarts, mode unlocks,
 3. A `restart` event is fired when the user restarts the app.
 4. An `unlock_mode` event is fired with the mode name when a discovery mode is selected.
 5. An `onboarding` event is fired when the user completes onboarding.
-6. The `trackEvent` function guards with `typeof gtag !== 'undefined'`.
+6. The `trackEvent` function checks `typeof globalThis !== 'undefined'` before reading `globalThis.gtag`.

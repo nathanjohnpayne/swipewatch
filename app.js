@@ -1504,7 +1504,7 @@ function trackEvent(action, label, value) {
     // value at the same name — e.g., from a third-party script overriding
     // it — doesn't throw at the invocation below (CodeRabbit Minor on
     // mergepath#250's swipewatch canary PR).
-    if (typeof globalThis.gtag === 'function') {
+    if (typeof globalThis !== 'undefined' && typeof globalThis.gtag === 'function') {
         globalThis.gtag('event', action, {
             'event_category': 'Card Interaction',
             'event_label': label,
