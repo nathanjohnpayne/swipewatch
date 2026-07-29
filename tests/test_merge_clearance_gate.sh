@@ -92,6 +92,17 @@ if [ "$1" = "api" ]; then
       cat "${FIXTURE_COMMENTS:-/dev/null}"
       exit 0
       ;;
+    repos/*/contents/*)
+      # #763: PR-base review policy. Served only when a fixture sets it;
+      # otherwise emit a 404 shape so the script takes its documented
+      # "base predates the policy file" fallback.
+      if [ -n "${FIXTURE_BASE_POLICY:-}" ]; then
+        cat "$FIXTURE_BASE_POLICY"
+        exit 0
+      fi
+      echo "gh: Not Found (HTTP 404)" >&2
+      exit 1
+      ;;
     repos/*/pulls/*)
       cat "${FIXTURE_PR:-/dev/null}"
       exit 0
@@ -112,9 +123,16 @@ STUB
 chmod +x "$STUB_DIR/gh"
 
 # A stub codex-review-check.sh that exits with $CODEX_STUB_RC (inherited
-# from the gate's environment). Default 0.
+# from the gate's environment). Default 0. Tests can set
+# CODEX_STUB_REQUIRE_HEAD_PIN=1 to assert the caller passed the real
+# delegate's HEAD-pinning override.
 cat >"$STUB_DIR/codex-check-stub" <<'STUB'
 #!/usr/bin/env bash
+if [ "${CODEX_STUB_REQUIRE_HEAD_PIN:-0}" = "1" ] && [ "${CODEX_REVIEW_CHECK_REQUIRE_APPROVAL_ON_HEAD:-}" != "1" ]; then
+  echo "codex-check-stub: expected CODEX_REVIEW_CHECK_REQUIRE_APPROVAL_ON_HEAD=1" >&2
+  exit 42
+fi
+[ -z "${CODEX_STUB_STDOUT:-}" ] || printf '%s\n' "$CODEX_STUB_STDOUT"
 exit "${CODEX_STUB_RC:-0}"
 STUB
 chmod +x "$STUB_DIR/codex-check-stub"
@@ -165,11 +183,20 @@ make_comments_fixture() {  # <json_array_literal>  issue comments
   echo "$file"
 }
 
-make_pr_fixture() {  # <sha> <author> <labels_json_array>
+make_pr_fixture() {  # <sha> <author> <labels_json_array> [base_ref] [default_branch]
   local sha=$1 author=$2 labels=${3:-'[]'}
+  # Default to base_ref == default_branch: the ordinary case, in which the
+  # #763 base-policy fetch is deliberately skipped entirely.
+  local base_ref=${4:-main} default_branch=${5:-main}
   local file="$WORKDIR/pr.$$.$RANDOM.json"
-  jq -n --arg sha "$sha" --arg author "$author" --argjson labels "$labels" '
-    { number: 99, head: { sha: $sha }, user: { login: $author }, labels: $labels }
+  jq -n --arg sha "$sha" --arg author "$author" --argjson labels "$labels" \
+        --arg base_ref "$base_ref" --arg default_branch "$default_branch" '
+    { number: 99,
+      head: { sha: $sha },
+      user: { login: $author },
+      labels: $labels,
+      base: { sha: "base000aaa", ref: $base_ref,
+              repo: { default_branch: $default_branch } } }
   ' >"$file"
   echo "$file"
 }
@@ -410,6 +437,69 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 11e (#763 Codex P1): NON-DEFAULT base whose policy ENABLES the external
+# gate, while the default-branch policy DISABLES it. Parsing the switch from
+# the default-branch checkout made the whole external arm vacuous, so the
+# required check passed a PR the base policy requires it to gate — the
+# non-default-base bypass. The gate must read the switch (and the threshold)
+# from the PR BASE policy and therefore delegate.
+# ---------------------------------------------------------------------------
+echo; echo "--- Test 11e: non-default base enables the gate the default branch disables (#763)"
+SCRATCH=$(make_scratch true false)          # default-branch policy: gate OFF
+BASE_POLICY="$WORKDIR/base-policy-on.yml"
+cat >"$BASE_POLICY" <<'YAML'
+external_review_threshold: 1
+external_review_paths:
+  - ".github/**"
+available_reviewers:
+  - nathanpayne-claude
+  - nathanpayne-codex
+codex:
+  bot_login: "chatgpt-codex-connector[bot]"
+  external_review_gate:
+    enabled: true
+dependabot:
+  reviewer_gate:
+    enabled: false
+YAML
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "nathanjohnpayne" '[]' release/1.x main)
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/app.ts","additions":5,"deletions":1}]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" \
+      FIXTURE_BASE_POLICY="$BASE_POLICY" \
+      MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" \
+      CODEX_STUB_RC=1 \
+      run_gate "$SCRATCH" 99 owner/repo 2>&1)
+RC=$?
+set -e
+if [ "$RC" = 1 ] && echo "$OUT" | grep -qi "external review applies"; then
+  pass "non-default base policy enables the gate the default branch disables (#763)"
+else
+  fail "expected rc=1 via base-policy gate-enable; got rc=$RC"; echo "$OUT" | sed 's/^/      /' >&2
+fi
+
+# ---------------------------------------------------------------------------
+# Test 11f (#763): a PR onto the DEFAULT branch must not consult the contents
+# API at all — the base policy IS the checked-out default-branch policy. This
+# pins the scoping that keeps a new contents-API dependency off the path every
+# consumer PR takes.
+# ---------------------------------------------------------------------------
+echo; echo "--- Test 11f: default-base PR does not fetch the base policy (#763)"
+SCRATCH=$(make_scratch true true)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "nathanjohnpayne" '[]' main main)
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"README.md","additions":3,"deletions":1}]')
+: > "$WORKDIR/gh-calls.log"
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" run_gate "$SCRATCH" 99 owner/repo 2>&1)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && ! grep -q "contents/" "$WORKDIR/gh-calls.log"; then
+  pass "default-base PR skips the base-policy contents fetch entirely (#763)"
+else
+  fail "expected rc=0 with no contents API call; got rc=$RC"; echo "$OUT" | sed 's/^/      /' >&2
+fi
+
+# ---------------------------------------------------------------------------
 # Test 11b (#429 Codex P1): NO needs-external-review label, but the PR is
 # intrinsically OVER THRESHOLD. The gate must DERIVE applicability (not
 # trust the label) and delegate — so a delegate that blocks → exit 1. This
@@ -586,6 +676,57 @@ if [ "$RC" = 1 ] && echo "$OUT" | grep -q "BLOCKED" && echo "$OUT" | grep -qi "f
 else
   fail "expected rc=1 BLOCKED via fail-closed; got rc=$RC"; echo "$OUT" | sed 's/^/      /' >&2
 fi
+
+# ---------------------------------------------------------------------------
+# Test 16b (#768 Codex P1): a MISSING policy resolver must fail CLOSED when the
+# PR targets a NON-DEFAULT base. Test 16 covers the mirror case — on a default
+# base the same absence is provably a no-op (the checked-out config already IS
+# the governing policy) and must NOT hard-fail, or a mid-sync consumer becomes
+# a red required check. The two together pin the asymmetry.
+# ---------------------------------------------------------------------------
+echo; echo "--- Test 16b: missing resolver + non-default base -> fail closed (#768)"
+SCRATCH=$(make_scratch true true)
+EMPTY_WF_16B=$(mktemp -d "$WORKDIR/emptywf16b.XXXXXX")
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "nathanjohnpayne" '[]' release/1.x main)
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/app.ts","additions":5,"deletions":1}]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" \
+      MERGE_CLEARANCE_WORKFLOW_DIR="$EMPTY_WF_16B" \
+      run_gate "$SCRATCH" 99 owner/repo 2>&1)
+RC=$?
+set -e
+if [ "$RC" = 2 ] && echo "$OUT" | grep -q "refusing to evaluate it against the default-branch policy"; then
+  pass "missing resolver + non-default base -> exit 2 (no silent policy downgrade)"
+else
+  fail "expected rc=2 fail-closed; got rc=$RC"; echo "$OUT" | sed 's/^/      /' >&2
+fi
+
+
+# ---------------------------------------------------------------------------
+# Test 16c (#768 CodeRabbit Major): missing resolver + UNDETERMINABLE base must
+# also fail closed. Test 16b covers a known non-default base; this covers the
+# case where the base cannot be established at all. Degrading there is an
+# assumption, not proof — the same "unknown is not proof" rule the resolver
+# applies.
+# ---------------------------------------------------------------------------
+echo; echo "--- Test 16c: missing resolver + undeterminable base -> fail closed (#768)"
+SCRATCH=$(make_scratch true true)
+EMPTY_WF_16C=$(mktemp -d "$WORKDIR/emptywf16c.XXXXXX")
+FIXTURE_PR_16C="$WORKDIR/pr-nobase.json"
+jq -n --arg sha "$HEAD_SHA" '{number:99, head:{sha:$sha}, user:{login:"nathanjohnpayne"}, labels:[]}' >"$FIXTURE_PR_16C"
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/app.ts","additions":5,"deletions":1}]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR_16C" FIXTURE_FILES="$FIXTURE_FILES" \
+      MERGE_CLEARANCE_WORKFLOW_DIR="$EMPTY_WF_16C" \
+      run_gate "$SCRATCH" 99 owner/repo 2>&1)
+RC=$?
+set -e
+if [ "$RC" = 2 ] && echo "$OUT" | grep -q "not provably against the default branch"; then
+  pass "missing resolver + undeterminable base -> exit 2 (unknown is not proof)"
+else
+  fail "expected rc=2 fail-closed; got rc=$RC"; echo "$OUT" | sed 's/^/      /' >&2
+fi
+
 
 # ---------------------------------------------------------------------------
 # Test 17 (#429): verified propagation PR — over-threshold, NO
@@ -1098,6 +1239,108 @@ if [ "$RC" != 0 ]; then
   pass "query: unfetchable PR metadata → nonzero exit (fail-closed contract)"
 else
   fail "query: expected nonzero on PR fetch failure; got rc=0 out='$OUT'"
+fi
+
+# ---------------------------------------------------------------------------
+# --derive-rate-limit-protection query mode (#713): prints exactly true/false.
+# `true` means the auto-merge rc=5 path is protected either by the active
+# merge-clearance external gate or by already-satisfied current-head
+# Codex/Phase-4b clearance when that required check is disabled.
+# ---------------------------------------------------------------------------
+
+echo; echo "--- Protection 1: active external gate + protected path → true"
+SCRATCH=$(make_scratch false true)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/auth/token.js","additions":2,"deletions":0}]')
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+  run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "true" ]; then
+  pass "protection: active external gate + protected path → true"
+else
+  fail "protection: active external gate expected true/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Protection 2 (#713): gate disabled + protected path + Phase-4b/Codex cleared → true"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/auth/token.js","additions":2,"deletions":0}]')
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+      MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" CODEX_STUB_REQUIRE_HEAD_PIN=1 CODEX_STUB_RC=0 CODEX_STUB_STDOUT='delegate stdout must not pollute query output' \
+      run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "true" ]; then
+  pass "protection: gate disabled + protected path + head-pinned current-head external clearance → true (#713)"
+else
+  fail "protection: gate-disabled cleared expected true/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Protection 3: gate disabled + protected path + no external clearance → false"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"src/auth/token.js","additions":2,"deletions":0}]')
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+      MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" CODEX_STUB_REQUIRE_HEAD_PIN=1 CODEX_STUB_RC=1 \
+      run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "false" ]; then
+  pass "protection: gate disabled + protected path + no current-head external clearance → false"
+else
+  fail "protection: gate-disabled uncleared expected false/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Protection 4: gate disabled + under-threshold plain PR stays false even if codex-check would pass"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"README.md","additions":2,"deletions":0}]')
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+      MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" CODEX_STUB_RC=0 \
+      run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "false" ]; then
+  pass "protection: under-threshold plain PR → false (keeps #512 r3 block)"
+else
+  fail "protection: under-threshold expected false/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Protection 5: Dependabot author → false"
+SCRATCH=$(make_scratch true true)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "$DEPENDABOT" "$EXT_LABEL")
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "false" ]; then
+  pass "protection: dependabot → false"
+else
+  fail "protection: dependabot expected false/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Protection 6: indeterminate marker read → nonzero, NOT 'true'"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture '[{"filename":".github/workflows/x.yml","additions":500,"deletions":0}]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS_FAIL=1 \
+  run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" != 0 ] && [ "$OUT" != "true" ]; then
+  pass "protection: indeterminate marker read → nonzero exit and no 'true' (caller fails closed)"
+else
+  fail "protection: indeterminate marker read expected nonzero and not 'true'; got rc=$RC out='$OUT'"
 fi
 
 # ---------------------------------------------------------------------------
