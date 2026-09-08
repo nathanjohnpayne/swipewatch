@@ -102,6 +102,8 @@ html {
     -webkit-user-drag: none;
     transition: transform 0.1s ease;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .card:active {
@@ -121,6 +123,8 @@ html {
 .card-poster {
     width: 100%;
     height: 70%;
+    flex: 1 1 auto;
+    min-height: 0;
     object-fit: cover;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
@@ -129,6 +133,8 @@ html {
 .card-poster-layered {
     width: 100%;
     height: 70%;
+    flex: 1 1 auto;
+    min-height: 0;
     position: relative;
     overflow: hidden;
     background: #000;
@@ -175,6 +181,8 @@ html {
 .card-poster-fallback {
     width: 100%;
     height: 70%;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -191,9 +199,15 @@ html {
     line-height: 1.2;
 }
 
+/* The poster/info split below is the design intent and holds at every viewport
+   that has room for it. `min-height: min-content` is the floor: on short
+   viewports the panel takes the extra it needs from the poster rather than
+   crushing the title or the synopsis, both of which are fixed-line boxes. */
 .card-info {
     padding: 20px;
     height: 30%;
+    min-height: min-content;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -213,16 +227,22 @@ html {
     -webkit-box-orient: vertical;
 }
 
+/* Two-line clamp. The height is pinned to exactly two lines (2 x line-height)
+   and the box neither grows nor shrinks, so it can never be taller than the
+   clamp -- which paints a third line below the ellipsis -- nor shorter than it,
+   which cuts the synopsis with no ellipsis at all. Any breakpoint that changes
+   line-height must restate a matching height. */
 .card-description {
     font-size: 0.9rem;
     color: #666;
     line-height: 1.4;
+    height: 2.8em;
+    flex: 0 0 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    flex: 1;
 }
 
 .card-type {
@@ -968,7 +988,6 @@ html {
 
     .card-description {
         font-size: 0.85rem;
-        -webkit-line-clamp: 2;
     }
 
     .swipe-indicator {
@@ -1035,8 +1054,8 @@ html {
 
     .card-description {
         font-size: 0.8rem;
-        -webkit-line-clamp: 2;
         line-height: 1.3;
+        height: 2.6em;
     }
 
     .card-type {
