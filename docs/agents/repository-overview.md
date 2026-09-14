@@ -40,3 +40,5 @@ swipewatch/
 ```
 
 ---
+
+The repository enables current-head external-review enforcement through `codex.external_review_gate.enabled`; see [the local review policy](../../REVIEW_POLICY.md#external-clearance-enforcement-in-this-repository) for activation and approval-count rollout requirements.
