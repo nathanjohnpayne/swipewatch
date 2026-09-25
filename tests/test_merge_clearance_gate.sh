@@ -219,6 +219,9 @@ if [ "${CODEX_STUB_REQUIRE_HEAD_PIN:-0}" = "1" ] && [ "${CODEX_REVIEW_CHECK_REQU
   echo "codex-check-stub: expected CODEX_REVIEW_CHECK_REQUIRE_APPROVAL_ON_HEAD=1" >&2
   exit 42
 fi
+if [ -n "${CODEX_STUB_EXPECT_EVIDENCE:-}" ] && [ "${CODEX_REVIEW_CHECK_REPORT_REQUEST_EVIDENCE:-0}" != "$CODEX_STUB_EXPECT_EVIDENCE" ]; then
+  echo "unexpected request evidence opt-in" >&2; exit 42
+fi
 [ -z "${CODEX_STUB_STDOUT:-}" ] || printf '%s\n' "$CODEX_STUB_STDOUT"
 exit "${CODEX_STUB_RC:-0}"
 STUB
@@ -597,6 +600,7 @@ FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "nathanjohnpayne" "$EXT_LABEL")
 set +e
 OUT=$(FIXTURE_PR="$FIXTURE_PR" \
       MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" \
+      CODEX_STUB_EXPECT_EVIDENCE=1 \
       CODEX_STUB_RC=1 \
       run_gate "$SCRATCH" 99 owner/repo 2>&1)
 RC=$?
@@ -669,6 +673,67 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# #1277: human-controlled holds apply before every full-gate class dispatch.
+# The disabled knobs and propagation exemption must not turn a hold green.
+for hold_label in human-hold needs-human-review policy-violation; do
+  for hold_lane in ordinary disabled dependabot propagation; do
+    SCRATCH=$(make_scratch true true)
+    hold_author=nathanjohnpayne
+    FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+    FIXTURE_FILES=$(make_files_fixture '[{"filename":"README.md","additions":3,"deletions":1}]')
+    case "$hold_lane" in
+      disabled) SCRATCH=$(make_scratch false false) ;;
+      dependabot) hold_author="$DEPENDABOT"; SCRATCH=$(make_scratch false false) ;;
+      propagation)
+        FIXTURE_FILES=$(make_files_fixture '[{"filename":".github/workflows/x.yml","additions":400,"deletions":50}]')
+        FIXTURE_COMMENTS=$(make_comments_fixture "[{\"user\":{\"login\":\"github-actions[bot]\"},\"body\":\"<!-- mergepath-propagation-lane verified-head=$HEAD_SHA -->\"}]") ;;
+    esac
+    FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "$hold_author" "[{\"name\":\"$hold_label\"}]")
+    set +e
+    OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+      run_gate "$SCRATCH" 99 owner/repo 2>&1)
+    RC=$?
+    set -e
+    if [ "$RC" = 1 ] && echo "$OUT" | grep -q "BLOCKED.*$hold_label"; then
+      pass "#1277: $hold_label blocks $hold_lane lane"
+    else
+      fail "#1277: $hold_label/$hold_lane expected block/1; got rc=$RC: $OUT"
+    fi
+  done
+done
+
+# These queries describe external-review applicability/coverage, not permission
+# to merge. A hold must not change their boolean contract.
+SCRATCH=$(make_scratch true true)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" nathanjohnpayne '[{"name":"human-hold"}]')
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+FIXTURE_FILES=$(make_files_fixture '[{"filename":"README.md","additions":3,"deletions":1}]')
+for hold_query in --derive-external-requiredness --derive-phase-4-requiredness --derive-rate-limit-protection; do
+  set +e
+  OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+    run_gate "$SCRATCH" "$hold_query" 99 owner/repo 2>/dev/null)
+  RC=$?
+  set -e
+  if [ "$RC" = 0 ] && [ "$OUT" = false ]; then
+    pass "#1277: hold preserves $hold_query"
+  else
+    fail "#1277: $hold_query expected false/0; got '$OUT'/$RC"
+  fi
+done
+
+# Exact-label control: issue-triage labels and similar names are not holds.
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" nathanjohnpayne '[{"name":"decision-needed"},{"name":"human-hold-extra"}]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+  run_gate "$SCRATCH" 99 owner/repo 2>&1)
+RC=$?
+set -e
+if [ "$RC" = 0 ]; then
+  pass "#1277: unrelated labels preserve ordinary clearance"
+else
+  fail "#1277: unrelated labels expected pass/0; got $RC: $OUT"
+fi
+
 # Test 11e (#763 Codex P1): NON-DEFAULT base whose policy ENABLES the external
 # gate, while the default-branch policy DISABLES it. Parsing the switch from
 # the default-branch checkout made the whole external arm vacuous, so the
@@ -2173,6 +2238,50 @@ for pin_case in head base-ref base-sha; do
   fi
 done
 
+# GitHub caps the PR files listing at 3000 entries. AT the cap the inventory may
+# be truncated, so both the lines total and the protected-path match below are
+# reading an incomplete list. scripts/workflow/external_review_fingerprint.sh has
+# forced requires_review at this bound since #427; this derivation did not, so
+# two implementations of the same question disagreed FAIL-OPEN on exactly the
+# largest PRs. Both directions are pinned: at the cap the answer must be true
+# even when every entry is tiny and excluded, and one entry below the cap the
+# ordinary rules must still apply so the guard cannot mask a genuine `false`.
+lockfile_inventory() {  # <count>  excluded, zero-line entries: ordinary rules say false
+  jq -nc --argjson n "$1" '[range($n) | {filename:"p\(.)/yarn.lock", additions:0, deletions:0}]'
+}
+
+echo; echo "--- Phase 4 Query 9: files listing AT the 3000-entry cap → true (fail closed)"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture "$(lockfile_inventory 3000)")
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+  run_gate "$SCRATCH" --derive-phase-4-requiredness 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "true" ]; then
+  pass "Phase 4 query: a possibly-capped files inventory fails closed to true"
+else
+  fail "Phase 4 query: at the 3000-entry cap expected true/0; got rc=$RC out='$OUT'"
+fi
+
+echo; echo "--- Phase 4 Query 10: one entry BELOW the cap → false (the guard must not over-fire)"
+SCRATCH=$(make_scratch false false)
+FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA" "someone")
+FIXTURE_FILES=$(make_files_fixture "$(lockfile_inventory 2999)")
+FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+set +e
+OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+  run_gate "$SCRATCH" --derive-phase-4-requiredness 99 owner/repo 2>/dev/null)
+RC=$?
+set -e
+if [ "$RC" = 0 ] && [ "$OUT" = "false" ]; then
+  pass "Phase 4 query: 2999 excluded zero-line entries stay false — the cap guard does not over-fire"
+else
+  fail "Phase 4 query: one entry below the cap expected false/0; got rc=$RC out='$OUT'"
+fi
+
 # ---------------------------------------------------------------------------
 # --derive-rate-limit-protection query mode (#713, tightened by #772): prints
 # exactly true/false. `true` means the auto-merge rc=5 path is protected either
@@ -2237,6 +2346,7 @@ FIXTURE_PROTECTION=$(make_protection_fixture '["Label Gate","Self-Review Require
 set +e
 OUT=$(FIXTURE_PR="$FIXTURE_PR" FIXTURE_FILES="$FIXTURE_FILES" FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
       FIXTURE_PROTECTION="$FIXTURE_PROTECTION" \
+      CODEX_REVIEW_CHECK_REPORT_REQUEST_EVIDENCE=1 CODEX_STUB_EXPECT_EVIDENCE=0 \
       MERGE_CLEARANCE_CODEX_CHECK_BIN="$STUB_DIR/codex-check-stub" CODEX_STUB_REQUIRE_HEAD_PIN=1 CODEX_STUB_RC=1 \
   run_gate "$SCRATCH" --derive-rate-limit-protection 99 owner/repo 2>"$WORKDIR/protection-1c-stderr.log")
 RC=$?
@@ -3662,8 +3772,9 @@ rcp_dir_case native-producer-needs-drift \
 # reddening nine consumers' lint. The mergepath direction is the other half:
 # there, the same absence is a deleted single writer and must be loud.
 RCP_CONSUMER="$RCP_DIR/consumer"
-mkdir -p "$RCP_CONSUMER/scripts/ci" "$RCP_CONSUMER/.github/workflows"
+mkdir -p "$RCP_CONSUMER/scripts/ci" "$RCP_CONSUMER/scripts/lib" "$RCP_CONSUMER/.github/workflows"
 cp "$RCP_CHECK" "$RCP_CONSUMER/scripts/ci/check_required_check_publisher"
+cp "$ROOT/scripts/lib/ci-check-modes.sh" "$RCP_CONSUMER/scripts/lib/ci-check-modes.sh"
 set +e
 OUT=$(cd "$RCP_CONSUMER" && ./scripts/ci/check_required_check_publisher 2>&1)
 RC=$?
@@ -3676,8 +3787,9 @@ else
 fi
 
 RCP_HUB="$RCP_DIR/hub-missing"
-mkdir -p "$RCP_HUB/scripts/ci" "$RCP_HUB/.github/workflows"
+mkdir -p "$RCP_HUB/scripts/ci" "$RCP_HUB/scripts/lib" "$RCP_HUB/.github/workflows"
 cp "$RCP_CHECK" "$RCP_HUB/scripts/ci/check_required_check_publisher"
+cp "$ROOT/scripts/lib/ci-check-modes.sh" "$RCP_HUB/scripts/lib/ci-check-modes.sh"
 printf '#!/usr/bin/env bash\n' > "$RCP_HUB/scripts/sync-to-downstream.sh"
 set +e
 OUT=$(cd "$RCP_HUB" && ./scripts/ci/check_required_check_publisher 2>&1)

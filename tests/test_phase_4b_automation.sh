@@ -15,7 +15,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export MERGEPATH_REVIEW_FEEDBACK_ACCOUNTING_CMD=true
 LIB="$ROOT/scripts/phase-4b/lib.sh"
 ORCH="$ROOT/scripts/phase-4b-review.sh"
 AD_CODEX="$ROOT/scripts/phase-4b/adapters/review-via-codex.sh"
@@ -28,6 +27,18 @@ done
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/p4b-auto-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+
+export P4B_TEST_POSTED_REVIEW="$WORK/posted-review.json"
+cat > "$WORK/clear-feedback.sh" <<'SH'
+#!/usr/bin/env bash
+if [ -s "$P4B_TEST_POSTED_REVIEW" ]; then
+  jq '{feedback_policy:{},findings:[{kind:"review-body",review_id:1,body:.body,accounted:true}],missing:[]}' "$P4B_TEST_POSTED_REVIEW"
+else
+  printf '{"feedback_policy":{},"findings":[],"missing":[]}'
+fi
+SH
+chmod +x "$WORK/clear-feedback.sh"
+export MERGEPATH_REVIEW_FEEDBACK_ACCOUNTING_CMD="$WORK/clear-feedback.sh"
 
 # (#602) The approval-loop accounting hook defaults ON under an enabled
 # phase_4b_automation block, so the orchestrator runs below would otherwise
@@ -219,6 +230,11 @@ mk_fake fake-claude-changes \
   "jq -n --arg r '{\"verdict\":\"CHANGES_REQUESTED\",\"summary\":\"needs work\",\"findings\":[{\"severity\":\"P1\",\"path\":\"x.js\",\"line\":2,\"body\":\"bug\"}]}' '{type:\"result\",subtype:\"success\",result:\$r,session_id:\"t\",total_cost_usd:0}'"
 mk_fake fake-claude-approve-usage \
   "jq -n --arg r '{\"verdict\":\"APPROVED\",\"summary\":\"looks good\",\"findings\":[]}' '{type:\"result\",subtype:\"success\",result:\$r,session_id:\"t\",usage:{input_tokens:120,output_tokens:30,total_tokens:150}}'"
+# Claude-side twin of fake-codex-approve-p2 (#1143): an APPROVED carrying a
+# discretionary P2, so the Direction B run reaches the step-9 issue-filing path
+# and the identity fences around it are actually exercised.
+mk_fake fake-claude-approve-p2-usage \
+  "jq -n --arg r '{\"verdict\":\"APPROVED\",\"summary\":\"advisory only\",\"findings\":[{\"severity\":\"P2\",\"path\":\"x.js\",\"line\":2,\"body\":\"should be handled under stricter policy\"}]}' '{type:\"result\",subtype:\"success\",result:\$r,session_id:\"t\",usage:{input_tokens:120,output_tokens:30,total_tokens:150}}'"
 mk_fake fake-claude-braces \
   "jq -n --arg r 'Here is the verdict:
 {\"verdict\":\"CHANGES_REQUESTED\",\"summary\":\"body has braces\",\"findings\":[{\"severity\":\"P1\",\"path\":\"x.js\",\"line\":2,\"body\":\"snippet contains { braces } and stays valid\"}]}
@@ -349,6 +365,19 @@ echo "jq intentionally unavailable" >&2
 exit 127
 SH
 chmod +x "$NO_JQ_DIR/jq"
+# (#1143) node became a hard runtime dependency when the identity fence started
+# running the shared contract parser on every enabled run. A shim that exits
+# non-zero is a faithful stand-in here precisely because the orchestrator probes
+# `node --version` rather than `command -v node` — an unrunnable node is as
+# fatal as an absent one, and `command -v` could not tell them apart.
+NO_NODE_DIR="$WORK/no-node-bin"
+mkdir -p "$NO_NODE_DIR"
+cat > "$NO_NODE_DIR/node" <<'SH'
+#!/usr/bin/env bash
+echo "node intentionally unavailable" >&2
+exit 127
+SH
+chmod +x "$NO_NODE_DIR/node"
 
 cat > "$BIN/gh" <<'SH'
 #!/usr/bin/env bash
@@ -370,6 +399,60 @@ if [ "${1:-}" = "api" ]; then
   fi
   case "${2:-}" in
     repos/o/r/pulls/*)
+      # #1143: the orchestrator now reads the PR body on EVERY run, not only
+      # when --author is absent, so this fake has to serve one. The two reads
+      # hit the same endpoint and are told apart by the --jq expression.
+      # P4B_FAKE_PR_BODY_FILE serves an arbitrary body; otherwise a
+      # contract-valid default naming P4B_FAKE_PR_BODY_AGENT (default claude).
+      # A fixture that wants an INVALID body points the file knob at one — the
+      # skip is declared per-fixture, never implied by a flag.
+      for a in "$@"; do
+        case "$a" in
+          *'.body'*)
+            # Body-read counter (#1143). The orchestrator reads the body up
+            # front and again at each identity fence, so a case can serve a
+            # DIFFERENT body from the Nth read on and simulate a PR-body edit
+            # landing mid-run. Same shape as the P4B_FAKE_LIVE_HEAD2 head-drift
+            # knob below; counting happens only when a case opts in with its
+            # own counter file, so cases cannot leak into each other.
+            bcnt=0
+            if [ -n "${P4B_FAKE_PR_BODY_COUNT:-}" ]; then
+              bcnt=$(( $( [ -f "$P4B_FAKE_PR_BODY_COUNT" ] && cat "$P4B_FAKE_PR_BODY_COUNT" || echo 0 ) + 1 ))
+              printf '%s\n' "$bcnt" > "$P4B_FAKE_PR_BODY_COUNT"
+            fi
+            # P4B_FAKE_PR_BODY_FAIL fails EVERY read; _FAIL_FROM fails from the
+            # Nth on. Both reproduce the #799 shape exactly: gh puts the JSON
+            # ERROR BODY on stdout and exits nonzero, so a caller that inferred
+            # failure from empty output would parse the error body.
+            if [ -n "${P4B_FAKE_PR_BODY_FAIL:-}" ] \
+               || { [ -n "${P4B_FAKE_PR_BODY_FAIL_FROM:-}" ] \
+                    && [ "$bcnt" -ge "$P4B_FAKE_PR_BODY_FAIL_FROM" ]; }; then
+              printf '{"message":"Not Found","status":"404"}\n'
+              exit 1
+            fi
+            if [ -n "${P4B_FAKE_PR_BODY_FILE2:-}" ] \
+               && [ "$bcnt" -ge "${P4B_FAKE_PR_BODY2_FROM:-2}" ]; then
+              # Record that the EDITED body was actually served. A case whose
+              # pass arm is "the run succeeded" cannot tell a working fence
+              # from an edit that never happened, and the read counter alone
+              # does not close that: the reads still occur when the swap point
+              # is out of reach. This marker is the only evidence that the
+              # second body reached the orchestrator.
+              [ -z "${P4B_FAKE_PR_BODY_SWAPPED:-}" ] \
+                || printf 'served\n' >> "$P4B_FAKE_PR_BODY_SWAPPED"
+              cat "$P4B_FAKE_PR_BODY_FILE2"
+              exit 0
+            fi
+            if [ -n "${P4B_FAKE_PR_BODY_FILE:-}" ]; then
+              cat "$P4B_FAKE_PR_BODY_FILE"
+            else
+              printf 'Authoring-Agent: %s\n\n## Self-Review\n\n- ok.\n' \
+                "${P4B_FAKE_PR_BODY_AGENT:-claude}"
+            fi
+            exit 0
+            ;;
+        esac
+      done
       # #674 round 4: P4B_FAKE_LIVE_HEAD2 simulates a head that drifts
       # between reads — served from the SECOND live-head read on.
       cnt_file="${P4B_ISSUE_LOG:-${TMPDIR:-/tmp}/p4b-fake}.headreads"
@@ -418,6 +501,7 @@ cat > "$BIN/fake-gh-as-reviewer" <<'SH'
 [ "${3:-}" = "api" ] || { echo "expected gh api subcommand" >&2; exit 64; }
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--input" ]; then
+    cp "${2:?}" "$P4B_TEST_POSTED_REVIEW"
     if [ -n "${P4B_WRAPPER_PAYLOAD:-}" ]; then
       cp "${2:?}" "$P4B_WRAPPER_PAYLOAD"
     fi
@@ -472,6 +556,198 @@ echo "unexpected fake gh-as-author invocation: $*" >&2
 exit 64
 SH
 chmod +x "$BIN/fake-gh-as-author"
+
+# --- #1261 approval acknowledgment regression -------------------------------
+# This stub is clear before posting and inventories the actual review payload
+# afterwards. It also requires the production fingerprint encoding (including
+# trailing newlines), so an acknowledgment of another body cannot pass.
+cat > "$WORK/approval-accounting.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${P4B_ACK_REAL_GATE:-}" = true ]; then
+  PATH="$P4B_ACK_GATE_BIN:$PATH" REVIEW_FEEDBACK_ACCOUNTING_CONFIG="$P4B_ACK_POLICY" \
+    GH_TOKEN=fixture-token exec "$P4B_ACK_GATE_SCRIPT" "$@"
+fi
+if [ ! -s "$P4B_ACK_REVIEW" ]; then
+  printf '{"feedback_policy":{},"findings":[],"missing":[]}'
+  exit 0
+fi
+[ "${P4B_ACK_READ_FAIL:-}" != true ] || exit 2
+if [ "${P4B_ACK_NOT_VISIBLE:-}" = true ]; then
+  printf '{"feedback_policy":{},"findings":[],"missing":[]}'
+  exit 0
+fi
+body_json=$(jq -c '.body' "$P4B_ACK_REVIEW")
+[ "${P4B_ACK_EDIT_BODY:-}" != true ] || body_json=$(printf '%s' "$body_json" | jq -c '. + "\nEdited finding"')
+fp=$(printf '%s' "$body_json" | shasum -a 256 | cut -c1-12)
+token="[mergepath-review-ack: 1 $fp]"
+accounted=false
+if [ -s "$P4B_ACK_COMMENT" ]; then
+  if jq -e --arg token "$token" '.body | startswith($token + "\n")' "$P4B_ACK_COMMENT" >/dev/null; then
+    accounted=true
+  fi
+fi
+kind=review-body
+[ "${P4B_ACK_ARCHIVED_BODY:-}" != true ] || kind=review-body-archive
+jq -n --arg kind "$kind" --argjson body "$body_json" --arg token "$token" --argjson accounted "$accounted" '
+  {kind:$kind, review_id:1, commit_id:"abc123", tier:"p2", body:$body, ack_token:$token, accounted:$accounted} as $f
+  | {feedback_policy:{},findings:[$f],missing:([$f] | map(select(.accounted == false)))}'
+[ "$accounted" = true ]
+SH
+chmod +x "$WORK/approval-accounting.sh"
+cat > "$WORK/approval-reviewer.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+endpoint=${4:?}
+shift 4
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --input ]; then
+    case "$endpoint" in
+      */reviews)
+        jq --arg submitted "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          '. + {submitted_at:$submitted}' "$2" > "$P4B_ACK_REVIEW"
+        printf '{"id":1,"commit_id":"abc123"}'
+        ;;
+      */comments)
+        [ "${P4B_ACK_POST_FAIL:-}" != true ] || exit 1
+        created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        [ "${P4B_ACK_SAME_SECOND:-}" != true ] || created=$(jq -r '.submitted_at' "$P4B_ACK_REVIEW")
+        jq --arg created "$created" --arg login "$GH_AS_REVIEWER_IDENTITY" \
+          '. + {id:2,created_at:$created,user:{login:$login}}' "$2" > "$P4B_ACK_COMMENT"
+        printf '%s' "$GH_AS_REVIEWER_IDENTITY" > "$P4B_ACK_IDENTITY"
+        printf '{"id":2}'
+        ;;
+      *) exit 64 ;;
+    esac
+    exit 0
+  fi
+  shift
+done
+exit 64
+SH
+chmod +x "$WORK/approval-reviewer.sh"
+
+mkdir -p "$WORK/approval-accounting-bin"
+cat > "$WORK/approval-accounting-bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+endpoint=""
+for arg in "$@"; do case "$arg" in repos/*) endpoint="$arg" ;; esac; done
+case "$endpoint" in
+  repos/o/r/pulls/1261/comments) printf '[]' ;;
+  repos/o/r/pulls/1261/reviews)
+    if [ -s "$P4B_ACK_REVIEW" ]; then
+      jq '[. + {id:1,user:{login:"nathanpayne-codex"},state:"APPROVED"}]' "$P4B_ACK_REVIEW"
+    else printf '[]'; fi
+    ;;
+  repos/o/r/issues/1261/comments)
+    if [ -s "$P4B_ACK_COMMENT" ]; then jq '[.]' "$P4B_ACK_COMMENT"; else printf '[]'; fi
+    ;;
+  repos/o/r/pulls/1261)
+    printf '{"head":{"repo":{"id":1}},"base":{"repo":{"id":1}}}' ;;
+  *) echo "unexpected approval accounting endpoint: $endpoint" >&2; exit 2 ;;
+esac
+SH
+chmod +x "$WORK/approval-accounting-bin/gh"
+
+run_approval_ack_case() {
+  local scenario="$1" adapter="$2" author="$3"; shift 3
+  local -a extra_args=()
+  [ "$scenario" != dry-run ] || extra_args=(--dry-run)
+  P4B_ACK_CASE="$WORK/approval-ack-$scenario"
+  mkdir -p "$P4B_ACK_CASE"
+  set +e
+  out=$(env PATH="$BIN:$PATH" MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" \
+    MERGEPATH_REVIEW_FEEDBACK_ACCOUNTING_CMD="$WORK/approval-accounting.sh" \
+    CODEX_BIN="$BIN/$adapter" CLAUDE_BIN="$BIN/$adapter" \
+    P4B_FAKE_PR_BODY_AGENT="$author" \
+    P4B_GH_AS_REVIEWER="$WORK/approval-reviewer.sh" P4B_GH_AS_AUTHOR="$BIN/fake-gh-as-author" \
+    P4B_ISSUE_LOG="$P4B_ACK_CASE/issues" P4B_ACCT_STATE_DIR="$P4B_ACK_CASE/accounting" \
+    P4B_ACK_REVIEW="$P4B_ACK_CASE/review.json" P4B_ACK_COMMENT="$P4B_ACK_CASE/comment.json" \
+    P4B_ACK_IDENTITY="$P4B_ACK_CASE/identity" P4B_ACK_POLICY="$POLICY_ON" \
+    P4B_ACK_GATE_BIN="$WORK/approval-accounting-bin" \
+    P4B_ACK_GATE_SCRIPT="$ROOT/scripts/review-feedback-accounting.sh" "$@" \
+    bash "$ORCH" 1261 --repo o/r --author "$author" --head abc123 --diff-file "$DIFF" "${extra_args[@]}" \
+    2>"$P4B_ACK_CASE/stderr")
+  rc=$?
+  set -e
+}
+
+run_approval_ack_case approved fake-codex-approve-p2 claude
+if [ "$rc" = 0 ] && [ -s "$P4B_ACK_CASE/comment.json" ] \
+   && [ "$(cat "$P4B_ACK_CASE/identity")" = nathanpayne-codex ] \
+   && grep -q 'issue create' "$P4B_ACK_CASE/issues"; then
+  pass "#1261: an approved advisory review is acknowledged under its reviewer identity after issue filing"
+else
+  fail "#1261: approval leaves an accounting obligation (rc=$rc; $out)"
+fi
+
+run_approval_ack_case changes fake-claude-changes codex
+if [ "$rc" = 1 ] && [ -s "$P4B_ACK_CASE/review.json" ] && [ ! -e "$P4B_ACK_CASE/comment.json" ]; then
+  pass "#1261: CHANGES_REQUESTED findings are never automatically acknowledged"
+else fail "#1261: changes-requested review was acknowledged (rc=$rc; $out)"; fi
+
+for failure in POST_FAIL READ_FAIL EDIT_BODY NOT_VISIBLE ARCHIVED_BODY; do
+  run_approval_ack_case "$failure" fake-codex-approve-p2 claude "P4B_ACK_$failure=true"
+  if [ "$rc" = 7 ] && printf '%s' "$out" | jq -e '.review_posted == true and .review_acknowledgment == "failed"' >/dev/null; then
+    pass "#1261: $failure reports failure without erasing the posted approval"
+  else fail "#1261: $failure lost post-state or claimed success (rc=$rc; $out)"; fi
+  if { [ "$failure" = EDIT_BODY ] || [ "$failure" = ARCHIVED_BODY ]; } && [ -e "$P4B_ACK_CASE/comment.json" ]; then
+    fail "#1261: body changed after posting was acknowledged"
+  fi
+done
+run_approval_ack_case dry-run fake-codex-approve-p2 claude
+if [ "$rc" = 0 ] && [ ! -e "$P4B_ACK_CASE/comment.json" ] && [ ! -e "$P4B_ACK_CASE/review.json" ]; then
+  pass "#1261: dry-run posts neither review nor acknowledgment"
+else fail "#1261: dry-run wrote a review or acknowledgment (rc=$rc; $out)"; fi
+
+run_approval_ack_case real-accounting fake-codex-approve-p2 claude P4B_ACK_REAL_GATE=true
+if [ "$rc" = 0 ] && printf '%s' "$out" | jq -e '.review_acknowledgment == "accounted"' >/dev/null; then
+  pass "#1261: real accounting accepts the exact body, reviewer identity and strictly later acknowledgment"
+else fail "#1261: real accounting rejected the acknowledgment (rc=$rc; $out; $(cat "$P4B_ACK_CASE/stderr"))"; fi
+
+run_approval_ack_case same-second fake-codex-approve-p2 claude P4B_ACK_REAL_GATE=true P4B_ACK_SAME_SECOND=true
+if [ "$rc" = 7 ] && [ -s "$P4B_ACK_CASE/comment.json" ] \
+   && printf '%s' "$out" | jq -e '.review_posted == true and .review_acknowledgment == "failed"' >/dev/null; then
+  pass "#1261: a same-second acknowledgment cannot pass the existing accounting rule"
+else fail "#1261: timestamp readback failed to enforce the accounting rule (rc=$rc; $out)"; fi
+
+for policy in "$POLICY_P2_REQUIRED" "$POLICY_ADDRESS_ALL"; do
+  run_approval_ack_case "strict-$(basename "$policy")" fake-codex-approve-p2 claude \
+    P4B_ACK_REAL_GATE=true "P4B_ACK_POLICY=$policy"
+  if [ "$rc" = 7 ] && [ ! -e "$P4B_ACK_CASE/comment.json" ] \
+     && printf '%s' "$out" | jq -e '.review_posted == true and .review_acknowledgment == "failed"' >/dev/null; then
+    pass "#1261: governing $(basename "$policy") refuses acknowledgment despite a locally discretionary P2"
+  else fail "#1261: stricter governing policy was bypassed (rc=$rc; $out)"; fi
+done
+
+POLICY_P2_IGNORED="$WORK/approval-p2-ignored.yml"
+cp "$POLICY_ON" "$POLICY_P2_IGNORED"
+printf '\nfeedback_policy: {priorities: {p2: ignore}}\n' >> "$POLICY_P2_IGNORED"
+run_approval_ack_case ignored-by-base fake-codex-approve-p2 claude \
+  P4B_ACK_REAL_GATE=true "P4B_ACK_POLICY=$POLICY_P2_IGNORED"
+if [ "$rc" = 0 ] && [ ! -e "$P4B_ACK_CASE/comment.json" ] \
+   && printf '%s' "$out" | jq -e '.review_posted == true and .review_acknowledgment == "not-needed"' >/dev/null; then
+  pass "#1261: governing ignore tier creates no acknowledgment obligation despite local issue filing"
+else fail "#1261: ignored governing tier created an impossible repair (rc=$rc; $out)"; fi
+
+# A freeform summary is not represented by the structured step-9 findings.
+for structured in '[]' '[{"severity":"P2","path":"x.js","line":2,"body":"filed advisory"}]'; do
+  verdict=$(jq -nc --argjson findings "$structured" '{verdict:"APPROVED",summary:"**P2** unfiled summary finding",findings:$findings}')
+  mk_fake fake-summary-finding "printf '%s' '$verdict'"
+  run_approval_ack_case "summary-$(printf '%s' "$structured" | jq length)" fake-summary-finding claude P4B_ACK_REAL_GATE=true
+  if [ "$rc" = 7 ] && [ ! -e "$P4B_ACK_CASE/comment.json" ] \
+     && printf '%s' "$out" | jq -e '.review_posted == true and .review_acknowledgment == "failed"' >/dev/null; then
+    pass "#1261: summary finding outside $structured is not automatically acknowledged"
+  else fail "#1261: summary finding bypassed step-9 evidence (rc=$rc; $out)"; fi
+done
+run_approval_ack_case summary-ignored fake-summary-finding claude \
+  P4B_ACK_REAL_GATE=true "P4B_ACK_POLICY=$POLICY_P2_IGNORED"
+if [ "$rc" = 0 ] && [ ! -e "$P4B_ACK_CASE/comment.json" ]; then
+  pass "#1261: ignored summary markers create no acknowledgment obligation"
+else fail "#1261: ignored summary marker invented an obligation (rc=$rc; $out)"; fi
+
+# --- end #1261 approval acknowledgment regression ---------------------------
 
 # ===========================================================================
 echo "lib.sh — reviewer selection"
@@ -1518,6 +1794,11 @@ set -e
 # ===========================================================================
 echo "orchestrator — entry decision + dispatch (dry-run, offline)"
 # ===========================================================================
+# (#1143) Every orchestrator case below reads the PR body, so the fake `gh`
+# has to be reachable from all of them — not just the non-dry-run cases that
+# already prefixed PATH by hand. $BIN holds only the fakes this suite injects
+# (`gh` plus `fake-*` shims), so prepending it shadows nothing else.
+export PATH="$BIN:$PATH"
 # automation disabled → exit 5
 set +e
 out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_OFF" bash "$ORCH" 123 --repo o/r 2>/dev/null)"; rc=$?
@@ -1546,6 +1827,33 @@ set -e
 if [ "$rc" = 5 ] && [ "$(printf '%s' "$out" | jq -r '.skipped')" = "true" ]; then
   pass "automation disabled → exit 5 even when jq is unavailable"
 else fail "disabled path without jq (rc=$rc, out=$out)"; fi
+
+# (#1143) node is a hard dependency ONLY from the enabled path inward. The
+# disabled path is what every consumer runs, and it must stay dependency-free —
+# if the probe ever drifts above the disabled/mode gates, this fails.
+set +e
+out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_OFF" PATH="$NO_NODE_DIR:$PATH" bash "$ORCH" 123 --repo o/r 2>/dev/null)"; rc=$?
+set -e
+if [ "$rc" = 5 ] && [ "$(printf '%s' "$out" | jq -r '.skipped')" = "true" ]; then
+  pass "#1143: automation disabled → exit 5 even when node is unavailable"
+else fail "#1143: disabled path must not require node (rc=$rc, out=$out)"; fi
+
+# (#1143) On the ENABLED path node is required, and the failure must NAME it.
+# Before the explicit probe this surfaced as a parser error from three frames
+# deeper, on a host that satisfied every documented prerequisite.
+set +e
+out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" PATH="$NO_NODE_DIR:$PATH" \
+  bash "$ORCH" 1150 --repo o/r --author claude --head abc123 --diff-file "$DIFF" --dry-run 2>&1)"; rc=$?
+set -e
+case "$out" in
+  *"node is required"*)
+    if [ "$rc" = 3 ]; then
+      pass "#1143: an unrunnable node fails closed on the enabled path and names the dependency"
+    else
+      fail "#1143: node check named the dependency but exited $rc (expected 3): $out"
+    fi ;;
+  *) fail "#1143: missing node did not produce the named dependency error (rc=$rc): $out" ;;
+esac
 
 set +e
 out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_OFF" bash "$ORCH" 123 --repo $'o/r\nextra' 2>/dev/null)"; rc=$?
@@ -1671,7 +1979,7 @@ else fail "Direction A (rc=$rc): $out"; fi
 # Direction B: author=codex → reviewer claude → CHANGES_REQUESTED → exit 1
 set +e
 out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CLAUDE_BIN="$BIN/fake-claude-changes" \
-  bash "$ORCH" 124 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 124 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
 set -e
 if [ "$rc" = 1 ] \
    && [ "$(printf '%s' "$out" | jq -r '.verdict')" = "CHANGES_REQUESTED" ] \
@@ -1679,6 +1987,21 @@ if [ "$rc" = 1 ] \
    && [ "$(printf '%s' "$out" | jq -r '.findings_count')" = "1" ]; then
   pass "Direction B (codex→claude) dry-run CHANGES_REQUESTED → exit 1"
 else fail "Direction B (rc=$rc): $out"; fi
+
+# #1186: a dry run makes the complete validated verdict available to the
+# caller before any publication path. The fixture includes a finding and full
+# normalized usage so a count/scalar-only summary cannot pass this assertion.
+expected_verdict="$(CLAUDE_BIN="$BIN/fake-claude-approve-p2-usage" \
+  bash "$AD_CLAUDE" --pr 127 --repo o/r --head abc123 --diff-file "$DIFF")"
+set +e
+out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CLAUDE_BIN="$BIN/fake-claude-approve-p2-usage" \
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 127 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
+set -e
+if [ "$rc" = 0 ] \
+   && printf '%s' "$out" | jq -e --argjson expected "$expected_verdict" \
+     '.dry_run == true and .validated_verdict == $expected' >/dev/null; then
+  pass "#1186: dry-run final JSON preserves the complete validated verdict"
+else fail "#1186: dry-run validated verdict (rc=$rc): $out"; fi
 
 # Fail-closed: adapter returns junk → orchestrator falls back, exit 4, never APPROVED
 HANDOFF_LOG="$WORK/handoff-junk.log"
@@ -1697,13 +2020,486 @@ HANDOFF_LOG="$WORK/handoff-claude.log"
 set +e
 out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CLAUDE_BIN="$BIN/fake-claude-junk" \
   P4B_HANDOFF="$BIN/fake-handoff" P4B_HANDOFF_LOG="$HANDOFF_LOG" \
-  bash "$ORCH" 126 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 126 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
 set -e
 if [ "$rc" = 4 ] \
    && [ "$(printf '%s' "$out" | jq -r '.fell_back_to_manual')" = "true" ] \
    && [ "$(cat "$HANDOFF_LOG")" = "nathanpayne-claude o/r#126" ]; then
   pass "manual fallback handoff targets the selected Claude reviewer for codex-authored PRs"
 else fail "claude fallback target (rc=$rc): $out"; fi
+
+# ---------------------------------------------------------------------------
+# #1143 — --author is cross-checked against the PR body, never a bypass of it
+# ---------------------------------------------------------------------------
+# #855 put the shared-contract check on the orchestrator, but only under
+# `[ -z "$AUTHOR" ]`: the contract was enforced for callers that omitted
+# --author and unenforced for callers that passed it. A caller that supplied
+# the identity on the command line selected a reviewer off a body the required
+# Self-Review gate would have rejected — and nothing ever compared the flag
+# against the agent the body declares, so a caller could pair the PR with a
+# reviewer the real authoring agent must not be paired with.
+#
+# These drive the orchestrator for real. Every case passes --author, because
+# that is precisely the path that used to skip the check.
+# A MISSING fixture and a malformed body refuse with the same contract message,
+# so a typo'd path would make every refusal case below pass for the wrong
+# reason. Require the fixture to EXIST (empty is a legitimate fixture — case
+# (b) depends on it) and report a distinct, non-matching string when it does
+# not, so the case falls to its catch-all `fail` instead of its pass arm.
+p4b1143_fixture_ok() {  # <path-or-"">
+  [ -z "$1" ] || [ -f "$1" ]
+}
+
+P4B1143_BODY="$WORK/p4b1143-body.md"
+p4b1143_run() {  # p4b1143_run <body-file-or-""> <extra orchestrator args...>
+  local bodyfile="$1"; shift
+  local out rc=0
+  if ! p4b1143_fixture_ok "$bodyfile"; then
+    printf 'FIXTURE-MISSING %s' "$bodyfile"; return 0
+  fi
+  set +e
+  out="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CODEX_BIN="$BIN/fake-codex-approve" \
+    CLAUDE_BIN="$BIN/fake-claude-approve-usage" \
+    P4B_FAKE_PR_BODY_FILE="$bodyfile" \
+    bash "$ORCH" 1143 --repo o/r --head abc123 --diff-file "$DIFF" --dry-run "$@" 2>&1)"
+  rc=$?
+  set -e
+  printf 'rc=%s %s' "$rc" "$out"
+}
+
+# Every refusal below is discriminated on the ORCHESTRATOR's own p4b_die line,
+# never on pr_body_validate's stderr chatter. The chatter is printed even when
+# the status that carries it is discarded, so matching it proves only that the
+# validator ran — measured: with `pr_body_validate || true` in place, an
+# unknown-agent body still prints "unknown Authoring-Agent" while the run is
+# actually refused by a different check. The die line is the reason of record.
+P4B1143_CONTRACT_DIE="ERROR: PR body does not satisfy the Authoring-Agent contract"
+
+# (a) The three body defects the contract exists to catch — an unknown agent,
+#     a duplicate marker, a `## Self-Review` heading hidden in a code fence —
+#     must all refuse even though --author names a real agent.
+printf 'Authoring-Agent: nobody\n\n## Self-Review\n\n- ok.\n' > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author claude)"
+case "$got" in
+  rc=0*) fail "#1143: --author accepted an unknown Authoring-Agent: $got" ;;
+  *"$P4B1143_CONTRACT_DIE"*) pass "#1143: --author does not bypass the unknown-agent check" ;;
+  *) fail "#1143: unknown-agent body refused, but not by the contract: $got" ;;
+esac
+
+printf 'Authoring-Agent: claude\nAuthoring-Agent: codex\n\n## Self-Review\n\n- ok.\n' > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author claude)"
+case "$got" in
+  rc=0*) fail "#1143: --author accepted a duplicate Authoring-Agent marker: $got" ;;
+  *"$P4B1143_CONTRACT_DIE"*) pass "#1143: --author does not bypass the duplicate-marker check" ;;
+  *) fail "#1143: duplicate-marker body refused, but not by the contract: $got" ;;
+esac
+
+printf 'Authoring-Agent: claude\n\ntext\n\n```\n## Self-Review\n```\n' > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author claude)"
+case "$got" in
+  rc=0*) fail "#1143: --author accepted a fenced ## Self-Review heading: $got" ;;
+  *"$P4B1143_CONTRACT_DIE"*) pass "#1143: --author does not bypass the fenced-heading check" ;;
+  *) fail "#1143: fenced-heading body refused, but not by the contract: $got" ;;
+esac
+
+# (b) The EMPTY form. A PR body may legitimately be the empty string, and an
+#     empty body carries no identity at all — it must refuse, not fall through
+#     to the flag. A detector that only handles well-formed input is the
+#     fail-open shape this fix exists to remove.
+: > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author claude)"
+case "$got" in
+  rc=0*) fail "#1143: --author accepted an EMPTY PR body: $got" ;;
+  *"$P4B1143_CONTRACT_DIE"*) pass "#1143: an empty PR body refuses even with --author" ;;
+  *) fail "#1143: empty body refused, but not by the contract: $got" ;;
+esac
+
+# (c) The ABSENT form. The read itself fails: gh writes its JSON error body to
+#     stdout and exits nonzero (#799). The run must refuse, and must not mine
+#     the error body for an agent name.
+got="$(MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" P4B_FAKE_PR_BODY_FAIL=1 \
+  p4b1143_run "" --author claude)"
+case "$got" in
+  rc=0*) fail "#1143: --author accepted an UNREADABLE PR body: $got" ;;
+  *"$P4B1143_CONTRACT_DIE"*) pass "#1143: an unreadable PR body refuses even with --author" ;;
+  *) fail "#1143: unreadable body refused, but not by the contract: $got" ;;
+esac
+
+# (d) The consistency check. A valid body that declares a DIFFERENT agent than
+#     --author must fail closed rather than silently preferring the flag.
+printf 'Authoring-Agent: claude\n\n## Self-Review\n\n- ok.\n' > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author codex)"
+case "$got" in
+  rc=0*) fail "#1143: --author overrode a contradicting PR body: $got" ;;
+  *"ERROR: --author 'codex' contradicts the PR body's Authoring-Agent 'claude'"*)
+    pass "#1143: --author contradicting the body's Authoring-Agent fails closed" ;;
+  *) fail "#1143: contradicting --author refused, but not by the cross-check: $got" ;;
+esac
+
+# (e) Not a blanket refusal, and not a spelling test: --author may name the
+#     reviewer LOGIN form of the same agent. The comparison is on the
+#     normalized agent, which is what actually selects the reviewer, so this
+#     agrees and the run proceeds to its ordinary verdict.
+got="$(p4b1143_run "$P4B1143_BODY" --author nathanpayne-CLAUDE)"
+case "$got" in
+  *contradicts*) fail "#1143: the login form of the same agent was read as a contradiction: $got" ;;
+  rc=0*direction*) pass "#1143: --author in login/mixed-case form still agrees with the body" ;;
+  *) fail "#1143: agreeing login-form --author did not complete: $got" ;;
+esac
+
+# (f) The body is the source of truth downstream, not the flag. An EMPTY
+#     --author value is not a cross-check to skip AND not an identity to act
+#     on: the body's agent is what selects the reviewer, so a codex-authored
+#     body still routes to the claude reviewer.
+printf 'Authoring-Agent: codex\n\n## Self-Review\n\n- ok.\n' > "$P4B1143_BODY"
+got="$(p4b1143_run "$P4B1143_BODY" --author "")"
+case "$got" in
+  rc=0*'"direction": "codex->claude"'*) pass "#1143: the body's agent, not the flag, selects the reviewer" ;;
+  *) fail "#1143: empty --author did not fall back to the body's agent: $got" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# #1143 round 2 — the body can disagree with ITSELF, later
+# ---------------------------------------------------------------------------
+# The up-front fence reads the body once, and the adapter run after it can last
+# the configured timeout. A PR-body edit moves no sha, so every drift check
+# between them — all of which compare heads — is blind to it. The attack: start
+# against a body declaring `codex` (so the CLAUDE reviewer is selected), edit
+# the body to `claude` while the adapter reasons, and collect a cross-agent
+# APPROVED from nathanpayne-claude on a PR that now declares claude.
+#
+# These are REAL runs, not dry-runs: the fences guard the side effects, and a
+# dry-run performs none. The reviewer wrapper is a guard stub that fails loudly,
+# so a regression cannot quietly post a review from any of the refusal cases.
+P4B1143R2_GUARD="$WORK/stub-rev-guard-1143.sh"
+printf '#!/bin/sh\necho "REGRESSION: reviewer wrapper invoked from an identity-drift refusal" >&2\nexit 9\n' \
+  > "$P4B1143R2_GUARD"
+chmod +x "$P4B1143R2_GUARD"
+
+P4B1143R2_BODY1="$WORK/p4b1143r2-body1.md"
+P4B1143R2_BODY2="$WORK/p4b1143r2-body2.md"
+printf 'Authoring-Agent: codex\n\n## Self-Review\n\n- ok.\n' > "$P4B1143R2_BODY1"
+
+# p4b1143r2_run <pr> <codex-or-claude-fake> <switch-from> <reviewer-wrapper> [extra env VAR=VAL...]
+# Runs for real against a codex-authored body (→ claude reviewer), with the
+# body switching to $P4B1143R2_BODY2 from the <switch-from>'th body read.
+# Body reads in a findings run are: 1 up-front, 2 pre-issue-filing, 3 pre-POST.
+p4b1143r2_run() {
+  local pr="$1" fake="$2" from="$3" revwrap="$4"; shift 4
+  local out rc=0
+  # Same fixture precondition as the round-1 runner, for the same reason: a
+  # missing body file reads to the orchestrator as an empty one, and an empty
+  # body refuses with a message these cases would happily match.
+  if ! p4b1143_fixture_ok "$P4B1143R2_BODY1" || ! p4b1143_fixture_ok "$P4B1143R2_BODY2"; then
+    printf 'FIXTURE-MISSING %s or %s' "$P4B1143R2_BODY1" "$P4B1143R2_BODY2"; return 0
+  fi
+  [ -x "$revwrap" ] || { printf 'REVIEWER-STUB-NOT-EXECUTABLE %s' "$revwrap"; return 0; }
+  set +e
+  out="$(env MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" \
+    CLAUDE_BIN="$BIN/$fake" \
+    OP_PREFLIGHT_AUTHOR_PAT=fake-author-pat \
+    P4B_GH_AS_AUTHOR="$BIN/fake-gh-as-author" \
+    P4B_GH_AS_REVIEWER="$revwrap" \
+    P4B_HANDOFF="$BIN/fake-handoff" P4B_HANDOFF_LOG="$WORK/p4b1143r2-handoff.log" \
+    P4B_FAKE_LIVE_HEAD=abc123 P4B_FAKE_CREATED_REVIEW_HEAD=abc123 \
+    P4B_ISSUE_LOG="$WORK/p4b1143r2-issues-${pr}.log" \
+    P4B_FAKE_PR_BODY_FILE="$P4B1143R2_BODY1" \
+    P4B_FAKE_PR_BODY_FILE2="$P4B1143R2_BODY2" \
+    P4B_FAKE_PR_BODY2_FROM="$from" \
+    P4B_FAKE_PR_BODY_COUNT="$WORK/p4b1143r2-count-${pr}" \
+    P4B_FAKE_PR_BODY_SWAPPED="$WORK/p4b1143r2-swapped-${pr}" \
+    "$@" \
+    bash "$ORCH" "$pr" --repo o/r --head abc123 --diff-file "$DIFF" 2>&1)"
+  rc=$?
+  set -e
+  printf 'rc=%s %s' "$rc" "$out"
+}
+
+# Counting, done so that a count which could not be TAKEN can never read as
+# zero. Two distinct traps meet here:
+#
+#   1. `grep -c` exits 1 when the count is legitimately ZERO while still
+#      printing "0", so `$(grep -c … || echo 0)` yields the two-line string
+#      "0\n0" and every later `-eq` on it is a syntax error the `if` swallows
+#      as false. `|| true` is therefore required, which means the STATUS
+#      cannot be the guard either.
+#   2. With the status unusable, "could not look" and "looked, found none"
+#      are indistinguishable unless something else separates them. STDOUT
+#      does: a real count is digits; grep absent, file absent and file
+#      unreadable all produce empty stdout.
+#
+# So judge the stdout SHAPE and fail closed on anything else. Returning 0 for
+# an unusable count would make the "filed nothing" assertion below pass for a
+# run that filed plenty — the same swallowed-failure class as trap 1, one
+# level up. `grep` is resolved through PATH on purpose: it is not at
+# /usr/bin/grep on every platform (NixOS, minimal containers), and $BIN holds
+# only this suite's `gh` and `fake-*` shims so it cannot be shadowed.
+p4b1143r2_count() {  # <pattern> <file> -> digits on stdout, or rc 1
+  local n
+  n="$(grep -c "$1" "$2" 2>/dev/null || true)"
+  case "$n" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s' "$n"
+}
+
+# (g) The attack itself, caught at the FIRST approval-side effect. The body
+#     flips to `claude` — the very agent selected as reviewer — before the
+#     step-9 issues are filed. Nothing may be filed and nothing may post.
+printf 'Authoring-Agent: claude\n\n## Self-Review\n\n- ok.\n' > "$P4B1143R2_BODY2"
+: > "$WORK/p4b1143r2-issues-1144.log"
+got="$(p4b1143r2_run 1144 fake-claude-approve-p2-usage 2 "$P4B1143R2_GUARD")"
+_filed="$(p4b1143r2_count '^ARGV gh issue create' "$WORK/p4b1143r2-issues-1144.log")" || _filed=""
+case "$got" in
+  rc=0*) fail "#1143: a mid-run Authoring-Agent flip to the reviewer's own agent still APPROVED: $got" ;;
+  *"Authoring-Agent changed during review"*)
+    if [ -z "$_filed" ]; then
+      fail "#1143: could not count filed issues — this assertion proves nothing, do not read it as a pass"
+    elif [ "$_filed" -eq 0 ]; then
+      pass "#1143: identity drift before the first approval-side effect refuses and files nothing"
+    else
+      fail "#1143: refused the drift but filed $_filed post-review issue(s) anyway"
+    fi ;;
+  *) fail "#1143: mid-run identity drift refused, but not by the identity fence: $got" ;;
+esac
+
+# (h) Drift that lands AFTER filing is caught by the pre-POST fence, and this
+#     run's filed issues are closed as superseded — the same cleanup the
+#     head-drift path at that fence already performs.
+: > "$WORK/p4b1143r2-issues-1145.log"
+got="$(p4b1143r2_run 1145 fake-claude-approve-p2-usage 3 "$P4B1143R2_GUARD")"
+_filed="$(p4b1143r2_count '^ARGV gh issue create' "$WORK/p4b1143r2-issues-1145.log")" || _filed=""
+_closed="$(p4b1143r2_count '^CLOSE #' "$WORK/p4b1143r2-issues-1145.log")" || _closed=""
+case "$got" in
+  rc=0*) fail "#1143: identity drift in the pre-POST window still APPROVED: $got" ;;
+  *"Authoring-Agent changed during review"*)
+    if [ -z "$_filed" ] || [ -z "$_closed" ]; then
+      fail "#1143: could not count filed/closed issues — this assertion proves nothing, do not read it as a pass"
+    elif [ "$_filed" -gt 0 ] && [ "$_closed" -eq "$_filed" ]; then
+      pass "#1143: identity drift at the pre-POST fence closes this run's $_filed filed issue(s) as superseded"
+    else
+      fail "#1143: pre-POST identity drift left orphans (filed=$_filed closed=$_closed)"
+    fi ;;
+  *) fail "#1143: pre-POST identity drift refused, but not by the identity fence: $got" ;;
+esac
+
+# (i) A findings-free APPROVED files no issues at all, so the pre-POST fence is
+#     the ONLY thing between the adapter and the review. It must still catch the
+#     drift — otherwise the whole guarantee rests on a path that only runs when
+#     the reviewer happened to return findings.
+got="$(p4b1143r2_run 1146 fake-claude-approve-usage 2 "$P4B1143R2_GUARD")"
+case "$got" in
+  rc=0*) fail "#1143: identity drift on a findings-free approval still APPROVED: $got" ;;
+  *"Authoring-Agent changed during review"*)
+    pass "#1143: identity drift is caught on a findings-free approval too" ;;
+  *) fail "#1143: findings-free drift refused, but not by the identity fence: $got" ;;
+esac
+
+# (j) A body that stops satisfying the CONTRACT mid-run is drift as well, not
+#     just a changed agent — the fence revalidates, it does not merely compare.
+printf 'Authoring-Agent: codex\n\ntext\n\n```\n## Self-Review\n```\n' > "$P4B1143R2_BODY2"
+got="$(p4b1143r2_run 1147 fake-claude-approve-usage 2 "$P4B1143R2_GUARD")"
+case "$got" in
+  rc=0*) fail "#1143: a body that stopped satisfying the contract mid-run still APPROVED: $got" ;;
+  *"no longer satisfies the Authoring-Agent contract"*)
+    pass "#1143: a mid-run contract break is drift, not just an agent change" ;;
+  *) fail "#1143: mid-run contract break refused, but not by the identity fence: $got" ;;
+esac
+
+# (k) The ABSENT form, mid-run: the revalidating read itself fails. Unreadable
+#     must be drift, never "unchanged" — the fail-open reading would let the
+#     attack through by simply making the second read fail.
+got="$(p4b1143r2_run 1148 fake-claude-approve-usage 99 "$P4B1143R2_GUARD" P4B_FAKE_PR_BODY_FAIL_FROM=2)"
+case "$got" in
+  rc=0*) fail "#1143: an unreadable revalidation read still APPROVED: $got" ;;
+  *"no longer satisfies the Authoring-Agent contract"*)
+    pass "#1143: an unreadable mid-run body read refuses instead of reading as unchanged" ;;
+  *) fail "#1143: unreadable revalidation refused, but not by the identity fence: $got" ;;
+esac
+
+# (l) NOT a blanket refusal of every mid-run body edit. An edit that leaves the
+#     identity alone — added prose, a fixed typo — still validates and still
+#     declares the same agent, so the approval proceeds and posts. Without this,
+#     the fence could be "refuse whenever the body bytes changed", which would
+#     break the ordinary case of an author tidying their own description.
+printf 'Authoring-Agent: codex\n\nSome prose added while the adapter ran.\n\n## Self-Review\n\n- ok.\n' \
+  > "$P4B1143R2_BODY2"
+P4B1143R2_POSTED="$WORK/p4b1143r2-posted-body.md"
+rm -f "$P4B1143R2_POSTED"
+got="$(p4b1143r2_run 1149 fake-claude-approve-usage 2 "$BIN/fake-gh-as-reviewer" \
+  P4B_WRAPPER_LOG="$WORK/p4b1143r2-wrapper.log" P4B_WRAPPER_BODY="$P4B1143R2_POSTED")"
+# This is the ONE case whose pass arm is "the run succeeded", so it is the one
+# case a swap that never fired would satisfy vacuously: if the body never
+# changed, of course nothing refused. Prove the edit landed by requiring the
+# fake's own "I served the second body" marker.
+#
+# The read COUNTER is not sufficient evidence here, measured rather than
+# assumed: mutation H3 moves the swap point out of reach, and the reads still
+# happen — counter 2, marker absent — so a counter-based guard passed while the
+# case proved nothing. The marker is written on the serving branch itself, so
+# it cannot be satisfied by anything short of the edited body reaching the
+# orchestrator.
+case "$got" in
+  rc=0*)
+    if [ ! -s "$WORK/p4b1143r2-swapped-1149" ]; then
+      fail "#1143: the edited body was never served — this assertion would pass vacuously"
+    elif [ -s "$P4B1143R2_POSTED" ]; then
+      pass "#1143: a mid-run body edit that leaves the identity alone still posts"
+    else
+      fail "#1143: identity-preserving edit exited 0 but posted nothing: $got"
+    fi ;;
+  *) fail "#1143: an identity-preserving mid-run body edit was refused: $got" ;;
+esac
+
+# (m) #1143 round 4 (Codex P2): the loop must already say not-posted before the
+#     fallback can be interrupted. fall_back_to_manual runs the GitHub-backed
+#     require_feedback_accounted BEFORE it marks the loop unposted, and that
+#     gate exits on a transient read failure or on feedback that genuinely
+#     arrived during the adapter run — leaving the loop log asserting that this
+#     UNPOSTED review was posted, with its ledger stage still staged. A
+#     persisted phantom approval is worse than the refusal itself.
+#
+#     Modelled exactly: a gate that passes at dispatch and fails at fallback.
+#     The assertion is on durable local state, not on the exit code, because
+#     the exit code is the same either way — it is the loop log that lies.
+P4B1143R2_GATE="$WORK/acct-gate-flaky.sh"
+cat > "$P4B1143R2_GATE" <<'SH'
+#!/usr/bin/env bash
+c="${P4B_FAKE_GATE_COUNT:?}"
+n=$(( $( [ -f "$c" ] && cat "$c" || echo 0 ) + 1 ))
+printf '%s\n' "$n" > "$c"
+[ "$n" -le 1 ] || { echo "simulated accounting gate failure at fallback" >&2; exit 1; }
+printf '{"posted":0,"accounted":0}\n'
+SH
+chmod +x "$P4B1143R2_GATE"
+
+printf 'Authoring-Agent: claude\n\n## Self-Review\n\n- ok.\n' > "$P4B1143R2_BODY2"
+P4B1143R2_ACCT="$WORK/acct-1151"
+rm -rf "$P4B1143R2_ACCT"
+got="$(p4b1143r2_run 1151 fake-claude-approve-usage 2 "$P4B1143R2_GUARD" \
+  P4B_ACCT_STATE_DIR="$P4B1143R2_ACCT" \
+  MERGEPATH_REVIEW_FEEDBACK_ACCOUNTING_CMD="$P4B1143R2_GATE" \
+  P4B_FAKE_GATE_COUNT="$WORK/acct-gate-count-1151")"
+_gate_calls="$(tail -1 "$WORK/acct-gate-count-1151" 2>/dev/null || true)"
+_loop="$(find "$P4B1143R2_ACCT/phase-4b-loops" -name '*.jsonl' 2>/dev/null | head -n1)"
+if [ -z "$_loop" ]; then
+  fail "#1143: no loop log written — this assertion proves nothing (gate calls=${_gate_calls:-none}; got=$got)"
+elif [ "${_gate_calls:-0}" -lt 2 ]; then
+  fail "#1143: the fallback gate was never reached (calls=${_gate_calls:-0}) — the interruption this guards was not exercised"
+elif jq -e -s 'last.loop.posted == "not-posted" and last.loop.fail_closed.happened == true' "$_loop" >/dev/null 2>&1 \
+     && [ -z "$(find "$P4B1143R2_ACCT/phase-4b-pending" -type f 2>/dev/null)" ] \
+     && [ ! -e "$P4B1143R2_ACCT/phase-4b-ledger.jsonl" ]; then
+  pass "#1143: identity drift corrects the loop to not-posted before the fallback's feedback gate can interrupt"
+else
+  fail "#1143: a failing fallback gate left durable state claiming a posted approval (loop=$(cat "$_loop" 2>/dev/null); pending=$(find "$P4B1143R2_ACCT/phase-4b-pending" -type f 2>/dev/null | tr '\n' ' '); got=$got)"
+fi
+
+# (n) #1143 round 5 (CodeRabbit P1): getting the ORDER right does not help if
+#     the corrected write can fail silently and then mark itself done.
+#     p4b_acct_hook_mark_last_loop_unposted has four `return 1` paths (an
+#     unresolvable log, an empty log, a failed jq rewrite, a failed mv), and
+#     p4b_acct_mark_unposted used to swallow that, clear
+#     P4B_ACCT_LOOP_RECORDED and return 0 regardless — after which the fence
+#     set P4B_PRE_POST_ACCT_CLEANED=true and fall_back_to_manual skipped its
+#     remaining attempt. Durable outcome: a `posted` loop record for a review
+#     that never posted, i.e. exactly what the round-4 ordering fix exists to
+#     prevent, reached through the correction's FAILURE path.
+#
+#     The flag now has to mean the property ("the loop no longer says posted"),
+#     not a side effect of the setup ("we called the corrector") — the same
+#     distinction that made the first case-(l) guard useless.
+#
+#     Both directions are asserted on DURABLE state, because a swallowed
+#     failure leaves the exit path byte-identical; only the loop log and the
+#     attempt count separate them.
+FLAKY_JQ_DIR="$WORK/flaky-jq-bin"
+mkdir -p "$FLAKY_JQ_DIR"
+# Fails ONLY the unposted-loop rewrite, and only the first
+# P4B_FAKE_JQ_FAIL_TIMES times. Every other jq call is delegated to the real
+# binary, so nothing else in the orchestrator is perturbed.
+#
+# The signature is `-cs` AND `--arg reason` together. `--arg reason` alone is
+# NOT unique — accounting.sh uses it in four places (the two prior-record
+# aggregation fallbacks, and the fail-closed sub-object built inside
+# p4b_acct_hook_record_loop) — and matching on it alone broke loop RECORDING
+# instead of the correction, which the direction-2 assertion caught as "no loop
+# log written". Only the rewrite at accounting.sh:1611 slurps with `-cs`.
+#
+# The real jq path is BAKED IN rather than passed through an env var, and the
+# counter knob is treated as optional. Both because the adapter runs its CLI
+# under a deliberately scrubbed child environment: an env-var indirection was
+# unset there, the shim exited non-zero for the adapter's own jq calls, the
+# adapter produced no valid verdict, and the run fell back on "invalid verdict"
+# WITHOUT ever reaching the identity fence — a green-looking rc=4 that tested
+# nothing. Measured, not guessed: a tracing shim showed the correction going
+# through note_fallback's `-nc` path with no `-cs` call at all.
+P4B1143R5_REAL_JQ="$(command -v jq)"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'slurp=false; reason=false; prev=""\n'
+  printf 'for a in "$@"; do\n'
+  printf '  [ "$a" = "-cs" ] && slurp=true\n'
+  printf '  if [ "$prev" = "--arg" ] && [ "$a" = "reason" ]; then reason=true; fi\n'
+  printf '  prev="$a"\n'
+  printf 'done\n'
+  printf 'if [ "$slurp" = true ] && [ "$reason" = true ] && [ -n "${P4B_FAKE_JQ_COUNT:-}" ]; then\n'
+  printf '  n=$(( $( [ -f "$P4B_FAKE_JQ_COUNT" ] && cat "$P4B_FAKE_JQ_COUNT" || echo 0 ) + 1 ))\n'
+  printf '  printf "%%s\\n" "$n" > "$P4B_FAKE_JQ_COUNT"\n'
+  printf '  if [ "$n" -le "${P4B_FAKE_JQ_FAIL_TIMES:-0}" ]; then\n'
+  printf '    echo "simulated jq failure in the unposted-loop rewrite" >&2\n'
+  printf '    exit 1\n'
+  printf '  fi\n'
+  printf 'fi\n'
+  printf 'exec %s "$@"\n' "$P4B1143R5_REAL_JQ"
+} > "$FLAKY_JQ_DIR/jq"
+chmod +x "$FLAKY_JQ_DIR/jq"
+
+p4b1143r5_case() {  # <pr> <fail-times> <expected-attempts> <label>
+  local pr="$1" failtimes="$2" want="$3" label="$4"
+  local acct="$WORK/acct-r5-$pr" cnt="$WORK/jqcount-$pr" got loop attempts
+  rm -rf "$acct"; rm -f "$cnt"
+  printf 'Authoring-Agent: claude\n\n## Self-Review\n\n- ok.\n' > "$P4B1143R2_BODY2"
+  got="$(p4b1143r2_run "$pr" fake-claude-approve-usage 2 "$P4B1143R2_GUARD" \
+    P4B_ACCT_STATE_DIR="$acct" \
+    PATH="$FLAKY_JQ_DIR:$PATH" \
+    P4B_REAL_JQ="$P4B1143R5_REAL_JQ" \
+    P4B_FAKE_JQ_COUNT="$cnt" \
+    P4B_FAKE_JQ_FAIL_TIMES="$failtimes")"
+  attempts="$(tail -1 "$cnt" 2>/dev/null || true)"
+  case "$attempts" in ''|*[!0-9]*) attempts="" ;; esac
+  loop="$(find "$acct/phase-4b-loops" -name '*.jsonl' 2>/dev/null | head -n1)"
+  case "$got" in
+    *"Authoring-Agent changed during review"*) : ;;
+    *)
+      # Without this the case can pass on a run that fell back for an entirely
+      # different reason (an adapter that failed under the shimmed jq, say) and
+      # never exercised the fence at all.
+      fail "#1143: $label — the run did not refuse at the identity fence, so nothing here was exercised (got=$got)"
+      return 0 ;;
+  esac
+  if [ -z "$loop" ]; then
+    fail "#1143: $label — no loop log written; this assertion proves nothing (got=$got)"
+  elif [ -z "$attempts" ]; then
+    fail "#1143: $label — the rewrite was never attempted, so the shim never intercepted (got=$got)"
+  elif [ "$attempts" != "$want" ]; then
+    fail "#1143: $label — expected $want correction attempt(s), saw $attempts"
+  elif ! jq -e -s 'last.loop.posted == "not-posted"' "$loop" >/dev/null 2>&1; then
+    fail "#1143: $label — durable loop record still claims posted: $(cat "$loop" 2>/dev/null)"
+  else
+    pass "#1143: $label"
+  fi
+}
+
+# Direction 1 — the correction lands on the first attempt: the flag is set and
+# the fallback must NOT try again (no duplicate correction).
+p4b1143r5_case 1152 0 1 \
+  "a loop correction that lands marks itself done and the fallback does not retry"
+
+# Direction 2 — the correction FAILS once: the flag must stay unset so the
+# fallback's remaining attempt still runs, and that retry must land. Pre-fix
+# this saw ONE attempt and a loop record still claiming posted.
+p4b1143r5_case 1153 1 2 \
+  "a FAILED loop correction leaves the retry armed, and the retry corrects the record"
 
 # #574 feedback_policy: a finding in a configured required tier cannot be
 # carried by an approval, even when the adapter output is otherwise valid.
@@ -2094,15 +2890,16 @@ WRAPPER_PAYLOAD="$WORK/wrapper-usage-payload.json"
 set +e
 out="$(PATH="$BIN:$PATH" MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CLAUDE_BIN="$BIN/fake-claude-approve-usage" \
   P4B_GH_AS_REVIEWER="$BIN/fake-gh-as-reviewer" P4B_GH_AS_AUTHOR="$BIN/fake-gh-as-author" P4B_WRAPPER_LOG="$WRAPPER_LOG" P4B_WRAPPER_BODY="$WRAPPER_BODY" P4B_WRAPPER_PAYLOAD="$WRAPPER_PAYLOAD" P4B_FAKE_LIVE_HEAD=abc123 \
-  bash "$ORCH" 130 --repo o/r --author codex --head abc123 --diff-file "$DIFF" 2>/dev/null)"; rc=$?
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 130 --repo o/r --author codex --head abc123 --diff-file "$DIFF" 2>/dev/null)"; rc=$?
 set -e
 if [ "$rc" = 0 ] \
    && [ "$(printf '%s' "$out" | jq -r '.token_count')" = "150" ] \
    && [ "$(printf '%s' "$out" | jq -r '.usage_source')" = "claude-json-envelope" ] \
+   && [ "$(printf '%s' "$out" | jq -r 'has("validated_verdict")')" = "false" ] \
    && jq -e '.commit_id == "abc123" and .event == "APPROVE"' "$WRAPPER_PAYLOAD" >/dev/null \
    && grep -q -- "Reviewer identity: \`nathanpayne-claude\`" "$WRAPPER_BODY" \
    && grep -q -- "Token usage: \`150\` tokens (source: \`claude-json-envelope\`)" "$WRAPPER_BODY"; then
-  pass "posted approval body includes token usage when adapter exposes it"
+  pass "posted approval retains token usage and omits dry-run-only verdict data"
 else fail "success review token usage (rc=$rc, out=$out, log=$(test -e "$WRAPPER_LOG" && cat "$WRAPPER_LOG" || true), body=$(test -e "$WRAPPER_BODY" && cat "$WRAPPER_BODY" || true))"; fi
 
 set +e
@@ -2119,7 +2916,7 @@ else fail "orchestrator adapter timeout (rc=$rc): $out"; fi
 # Forced reviewer override must still preserve the cross-agent invariant.
 set +e
 MERGEPATH_REVIEW_POLICY_PATH="$POLICY_ON" CODEX_BIN="$BIN/fake-codex-approve" \
-  bash "$ORCH" 133 --repo o/r --author codex --reviewer nathanpayne-codex --head abc123 --diff-file "$DIFF" --dry-run >/dev/null 2>&1; rc=$?
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 133 --repo o/r --author codex --reviewer nathanpayne-codex --head abc123 --diff-file "$DIFF" --dry-run >/dev/null 2>&1; rc=$?
 set -e
 [ "$rc" = 3 ] && pass "forced reviewer matching author rejected with exit 3" \
   || fail "forced same-agent reviewer should exit 3 (got $rc)"
@@ -2296,7 +3093,7 @@ else fail "orchestrator policy codex effort/timeout (rc=$rc, out=$out, body=$(te
 
 set +e
 out="$(MERGEPATH_REVIEW_POLICY_PATH="$WORK/policy-te.yml" CLAUDE_BIN="$BIN/fake-claude-effort" \
-  bash "$ORCH" 141 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
+  P4B_FAKE_PR_BODY_AGENT=codex bash "$ORCH" 141 --repo o/r --author codex --head abc123 --diff-file "$DIFF" --dry-run 2>/dev/null)"; rc=$?
 set -e
 if [ "$rc" = 0 ] && [ "$(printf '%s' "$out" | jq -r '.reviewer_effort')" = "xhigh" ]; then
   pass "orchestrator resolves claude effort=xhigh from policy (author=codex → reviewer claude)"
@@ -2962,6 +3759,14 @@ set -eu
 shift
 endpoint=${1:-}
 [ "$endpoint" = --paginate ] && { shift; endpoint=${1:-}; }
+# (#1143) The orchestrator reads the PR body on every run; the one orchestrator
+# case that runs with this bin on PATH needs a contract-valid one. Barrier
+# reads never carry a `.body` filter, so this cannot shadow them.
+for a in "$@"; do
+  case "$a" in
+    *'.body'*) printf 'Authoring-Agent: claude\n\n## Self-Review\n\n- ok.\n'; exit 0 ;;
+  esac
+done
 case "$endpoint" in
   repos/owner/repo/issues/7/comments)
     [ "${P4B_TEST_COMMENTS_FAIL:-false}" != true ] || exit 42

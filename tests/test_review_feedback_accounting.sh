@@ -347,6 +347,7 @@ JSON
 run_gate
 assert_eq 1 "$RUN_RC" "schema-valid flow-style policy preserves registered reviewer findings"
 assert_eq nathanpayne-release "$(printf '%s' "$RUN_JSON" | jq -r '.missing[0].reviewer')" "flow-style reviewer identity is inventoried"
+assert_eq required "$(printf '%s' "$RUN_JSON" | jq -r '.feedback_policy.priorities.p1')" "accounting exposes its parsed flow-style policy for acknowledgment decisions"
 mv "$TMP/review-policy.block-style.yml" "$TMP/review-policy.yml"
 
 reset_fixtures
@@ -394,9 +395,13 @@ cp "$TMP/review-policy.yml" "$TRUSTED_CHECKOUT/.github/review-policy.yml"
 git -C "$TRUSTED_CHECKOUT" init -q -b main
 git -C "$TRUSTED_CHECKOUT" remote add origin https://github.com/acme/widget.git
 git -C "$TRUSTED_CHECKOUT" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+cat >>"$TMP/fixtures/base-review-policy.yml" <<'YAML'
+feedback_policy: {mode: by-priority, priorities: {p2: required}}
+YAML
 run_gate ambient base "$TRUSTED_CHECKOUT/scripts/review-feedback-accounting.sh"
 assert_eq 1 "$RUN_RC" "default-branch checkout materializes the exact PR-base policy"
 assert_eq nathanpayne-release "$(printf '%s' "$RUN_JSON" | jq -r '.missing[0].reviewer')" "stale or dirty default checkout cannot omit a base reviewer"
+assert_eq required "$(printf '%s' "$RUN_JSON" | jq -r '.feedback_policy.priorities.p2')" "accounting emits the exact base policy, not stale local policy"
 
 reset_fixtures
 cat >"$TMP/fixtures/inline.json" <<'JSON'
@@ -2733,6 +2738,55 @@ JSON
 run_gate
 CALLS=$(grep -cF 'repos/acme/widget/code-scanning/alerts/40' "$TMP/gh-calls.log" || true)
 assert_eq 1 "$CALLS" "same alert number referenced by two comments is fetched only once (memoized)"
+
+# Force only the shared CodeRabbit marker read to fail after partial output.
+# Other grep users and all fixture/API reads keep their normal behavior.
+cat >"$TMP/bin/grep" <<'SH'
+#!/usr/bin/env bash
+if [ "${CODERABBIT_EXTRACT_FAIL:-0}" = 1 ] && [ "${1:-}" = -oE ]; then
+  case "${2:-}" in
+    '🟠 Major|'*)
+      printf 'called\n' >>"$CODERABBIT_EXTRACT_FAIL_LOG"
+      printf '🟠 Major\n'
+      exit 2
+      ;;
+  esac
+fi
+exec /usr/bin/grep "$@"
+SH
+chmod +x "$TMP/bin/grep"
+export CODERABBIT_EXTRACT_FAIL_LOG="$TMP/extract-failure.log"
+for surface in inline issues reviews; do
+  reset_fixtures
+  jq -n '[{id:87801,user:{login:"coderabbitai[bot]"},body:"_🟠 Major_",
+    created_at:"2026-09-13T01:00:00Z",updated_at:"2026-09-13T01:00:00Z",
+    submitted_at:"2026-09-13T01:00:00Z",path:"src/a.js",line:1}]' \
+    >"$TMP/fixtures/$surface.json"
+  : >"$CODERABBIT_EXTRACT_FAIL_LOG"
+  export CODERABBIT_EXTRACT_FAIL=1
+  run_gate
+  assert_eq 2 "$RUN_RC" "$surface tier read failure is accounting infrastructure error"
+  assert_eq "" "$RUN_JSON" "$surface tier read failure emits no accounting verdict"
+  assert_eq called "$(cat "$CODERABBIT_EXTRACT_FAIL_LOG")" "$surface failure reached the actual marker extractor"
+  export CODERABBIT_EXTRACT_FAIL=0
+  run_gate
+  assert_eq 1 "$RUN_RC" "$surface control: readable Major remains an unaccounted finding"
+done
+
+printf '_🟠 Major_\n' >"$TMP/failed-archive-body.txt"
+: >"$CODERABBIT_EXTRACT_FAIL_LOG"
+ARCHIVE_RC=0
+ARCHIVE_OUT=$(PATH="$TMP/bin:$PATH" CODERABBIT_EXTRACT_FAIL=1 "$RENDER_ARCHIVE" \
+  issue-comment 87802 'coderabbitai[bot]' '2026-09-13T01:00:00Z' \
+  "$TMP/failed-archive-body.txt" 2>"$TMP/failed-archive.err") || ARCHIVE_RC=$?
+assert_eq 2 "$ARCHIVE_RC" "archive tier read failure is infrastructure error"
+assert_eq "" "$ARCHIVE_OUT" "archive tier read failure emits no successful empty record"
+assert_eq called "$(cat "$CODERABBIT_EXTRACT_FAIL_LOG")" "archive failure reached the actual marker extractor"
+ARCHIVE_OUT=$(PATH="$TMP/bin:$PATH" CODERABBIT_EXTRACT_FAIL=0 "$RENDER_ARCHIVE" \
+  issue-comment 87802 'coderabbitai[bot]' '2026-09-13T01:00:00Z' "$TMP/failed-archive-body.txt")
+assert_match '^<!-- mergepath-feedback-archive:v1 ' "$ARCHIVE_OUT" "archive control: readable Major produces its history record"
+unset CODERABBIT_EXTRACT_FAIL CODERABBIT_EXTRACT_FAIL_LOG
+rm "$TMP/bin/grep"
 
 if [ "$FAIL" -ne 0 ]; then
   printf 'review-feedback-accounting: FAIL (%s failed, %s passed)\n' "$FAIL" "$PASS" >&2
