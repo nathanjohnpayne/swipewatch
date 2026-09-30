@@ -30,7 +30,7 @@ reviews:
   estimate_code_review_effort: true
 
   path_instructions:
-    - path: "app.js"
+    - path: "public/app.js"
       instructions: >-
         Main application file. This is a large single-file app.
         Review for DOM performance with large datasets (batch DOM

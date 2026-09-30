@@ -1307,7 +1307,7 @@ let gestureDemoShown = false;
 function init() {
     currentIndex = 0;
     stats = { liked: 0, superLiked: 0, disliked: 0 };
-    cardStack.innerHTML = '';
+    cardStack.replaceChildren();
     endScreen.classList.add('hidden');
 
     sessionContent = getSessionContent();
@@ -1343,49 +1343,55 @@ function createCard(index) {
     card.className = 'card';
     card.dataset.index = index;
 
-    // Determine if title overlay is needed based on URL label parameter
-    let posterHTML;
+    // Build the card with DOM APIs (textContent / setAttribute / CSSOM
+    // style properties, addEventListener) rather than an innerHTML template
+    // with inline style/onerror attributes, so the page works under a
+    // Content-Security-Policy that forbids inline script and inline styles.
+    const gradient = `linear-gradient(135deg, ${content.color} 0%, ${adjustColor(content.color, -20)} 100%)`;
     const hasPosterLabel = content.background && content.background.includes('label=poster');
-    const hasStandardLabel = content.background && content.background.includes('label=standard');
 
-    if (hasPosterLabel && content.titleImage) {
-        // Poster label - use layered version with background + title treatment overlay
-        posterHTML = `
-            <div class="card-poster-layered">
-                <img src="${content.background}" alt="${content.title} background" class="poster-background" onerror="this.parentElement.style.display='none'; this.parentElement.nextElementSibling.style.display='flex';">
-                <img src="${content.titleImage}" alt="${content.title}" class="poster-title-image">
-            </div>
-            <div class="card-poster-fallback" style="display:none; background: linear-gradient(135deg, ${content.color} 0%, ${adjustColor(content.color, -20)} 100%);">
-                <div class="poster-title">${content.title}</div>
-            </div>`;
-    } else if (hasStandardLabel || content.background) {
-        // Standard label - no title overlay, letterbox style
-        posterHTML = `
-            <div class="card-poster-layered card-poster-letterbox" style="background: linear-gradient(135deg, ${content.color} 0%, ${adjustColor(content.color, -20)} 100%);">
-                <img src="${content.background}" alt="${content.title}" class="poster-background-letterbox" onerror="this.parentElement.style.display='none'; this.parentElement.nextElementSibling.style.display='flex';">
-            </div>
-            <div class="card-poster-fallback" style="display:none; background: linear-gradient(135deg, ${content.color} 0%, ${adjustColor(content.color, -20)} 100%);">
-                <div class="poster-title">${content.title}</div>
-            </div>`;
-    } else {
-        // Fallback to gradient only
-        posterHTML = `
-            <div class="card-poster-fallback" style="background: linear-gradient(135deg, ${content.color} 0%, ${adjustColor(content.color, -20)} 100%);">
-                <div class="poster-title">${content.title}</div>
-            </div>`;
+    const fallback = createElement('div', 'card-poster-fallback');
+    fallback.style.background = gradient;
+    fallback.appendChild(createElement('div', 'poster-title', content.title));
+
+    if (content.background) {
+        // Poster label with a title treatment gets the layered version
+        // (background + title overlay); anything else is letterboxed.
+        const layered = hasPosterLabel && content.titleImage;
+        const poster = createElement('div', layered ? 'card-poster-layered' : 'card-poster-layered card-poster-letterbox');
+        if (!layered) poster.style.background = gradient;
+
+        const bg = createElement('img', layered ? 'poster-background' : 'poster-background-letterbox');
+        bg.setAttribute('alt', layered ? `${content.title} background` : content.title);
+        // Auto-fallback to the gradient card if the image fails to load.
+        bg.addEventListener('error', () => {
+            poster.style.display = 'none';
+            fallback.style.display = 'flex';
+        }, { once: true });
+        bg.setAttribute('src', content.background);
+        poster.appendChild(bg);
+
+        if (layered) {
+            const titleImg = createElement('img', 'poster-title-image');
+            titleImg.setAttribute('alt', content.title);
+            titleImg.setAttribute('src', content.titleImage);
+            poster.appendChild(titleImg);
+        }
+
+        fallback.style.display = 'none';
+        card.appendChild(poster);
+    }
+    card.appendChild(fallback);
+
+    if (activeMode) {
+        card.appendChild(createElement('div', 'card-mode-badge', activeMode.name));
     }
 
-    const badgeHTML = activeMode ? `<div class="card-mode-badge">${activeMode.name}</div>` : '';
-
-    card.innerHTML = `
-        ${posterHTML}
-        ${badgeHTML}
-        <div class="card-info">
-            <span class="card-type">${content.type}</span>
-            <h2 class="card-title">${content.title}</h2>
-            <p class="card-description">${content.description}</p>
-        </div>
-    `;
+    const info = createElement('div', 'card-info');
+    info.appendChild(createElement('span', 'card-type', content.type));
+    info.appendChild(createElement('h2', 'card-title', content.title));
+    info.appendChild(createElement('p', 'card-description', content.description));
+    card.appendChild(info);
 
     // Position cards in stack (slight offset for depth)
     const offset = index - currentIndex;
@@ -1398,6 +1404,14 @@ function createCard(index) {
     }
 
     cardStack.appendChild(card);
+}
+
+// Create an element with a class and optional text content (never HTML).
+function createElement(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
 }
 
 // Helper function to darken color
@@ -1495,8 +1509,8 @@ function addSwipeListeners(card) {
 
 // Google Analytics event tracking
 function trackEvent(action, label, value) {
-    // gtag is the Google Analytics global, loaded by the inline GA snippet
-    // in index.html. Defensively access via globalThis so eslint's no-undef
+    // gtag is the Google Analytics global, defined by gtag-init.js (loaded
+    // from index.html). Defensively access via globalThis so eslint's no-undef
     // is satisfied without needing a globals declaration in eslint.config.js
     // (gtag isn't part of the mergepath ESLint template's framework
     // vocabulary; per-consumer GA-specific globals belong here).
@@ -1775,11 +1789,12 @@ spendBtn.addEventListener('click', () => {
 });
 
 function openUnlockModal() {
-    unlockModesContainer.innerHTML = '';
+    unlockModesContainer.replaceChildren();
     DISCOVERY_MODES.forEach(mode => {
         const btn = document.createElement('button');
         btn.className = 'unlock-mode-btn';
-        btn.innerHTML = `<span class="mode-name">${mode.name}</span><span class="mode-desc">${mode.description}</span>`;
+        btn.appendChild(createElement('span', 'mode-name', mode.name));
+        btn.appendChild(createElement('span', 'mode-desc', mode.description));
         btn.addEventListener('click', () => selectUnlockMode(mode));
         unlockModesContainer.appendChild(btn);
     });

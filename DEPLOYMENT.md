@@ -360,9 +360,11 @@ There is no staging environment. All deploys go directly to production.
 
 ## Build Process
 
-No build step required. This is a static site — source files (`index.html`, `app.js`, `styles.css`, assets) are deployed directly.
+No build step required. This is a static site — the source files in `public/` (`index.html`, `app.js`, `styles.css`, `gtag-init.js`, images) are deployed directly. `firebase.json` sets `"public": "public"`, so nothing outside `public/` is ever uploaded.
 
-If asset versioning is updated, increment the query param version in `index.html` (for example `?v=1.6` → `?v=1.7`).
+If asset versioning is updated, increment the query param version in `public/index.html` (for example `?v=1.8` → `?v=1.9`).
+
+The hosting config also sets a `Content-Security-Policy` and other security headers. If a change needs a new external origin (an image CDN, script, or analytics endpoint), add it to the CSP in `firebase.json` in the same PR, or the browser will block it.
 
 ## Deployment Steps
 

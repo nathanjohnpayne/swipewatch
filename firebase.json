@@ -1,13 +1,33 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "public",
     "ignore": [
-      "firebase.json",
       "**/.*",
       "**/node_modules/**",
       "**/*.md"
     ],
     "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; script-src 'self' https://*.googletagmanager.com; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; img-src 'self' https://disney.images.edge.bamgrid.com https://*.google-analytics.com https://*.googletagmanager.com; style-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          }
+        ]
+      },
       {
         "source": "**/*.@(js|css)",
         "headers": [
@@ -29,7 +49,7 @@
     ],
     "rewrites": [
       {
-        "source": "!{**.js,**.css,**.jpg,**.png,**.gif,**.svg,**.ico}",
+        "regex": "^/[^.]*$",
         "destination": "/index.html"
       }
     ]

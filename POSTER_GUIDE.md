@@ -102,7 +102,7 @@ Two parameter styles exist—modern (preferred for new content) and classic:
 
 ## Option 2: Use Other External URLs
 
-Edit `app.js` and add any image URL to the `background` field:
+Edit `public/app.js` and add any image URL to the `background` field:
 
 ```javascript
 {
@@ -178,7 +178,7 @@ This means you can mix formats freely in the `contentData` array—the rendering
 
 ## Updating Colors
 
-To change the gradient colors, edit the `color` field in `app.js`:
+To change the gradient colors, edit the `color` field in `public/app.js`:
 
 ```javascript
 {
@@ -210,17 +210,18 @@ The app automatically creates a gradient by darkening the base color using the `
 
 ```
 Swipe Watch/
-├── index.html
-├── styles.css
-├── app.js
-├── posters/
-│   ├── beauty-and-the-beast.jpg
-│   ├── family-guy.jpg
-│   ├── abbott-elementary.jpg
-│   └── ...
+└── public/
+    ├── index.html
+    ├── styles.css
+    ├── app.js
+    └── posters/
+        ├── beauty-and-the-beast.jpg
+        ├── family-guy.jpg
+        ├── abbott-elementary.jpg
+        └── ...
 ```
 
-Then update app.js:
+Then update `public/app.js`:
 ```javascript
 background: "posters/beauty-and-the-beast.jpg"
 ```

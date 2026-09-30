@@ -48,7 +48,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 Visit https://swipewatch.web.app
 
 ### Local Development
-1. Open `index.html` in a web browser
+1. Open `public/index.html` in a web browser (or serve the `public/` directory, e.g. `python3 -m http.server 8000 -d public`)
 2. Complete the onboarding tutorial
 3. Start swiping through 10 cards per session
 4. Earn Disney Coins and unlock discovery modes
@@ -177,7 +177,7 @@ The end screen displays:
 
 ### Adding Your Own Content
 
-Edit the `contentData` array in `app.js`:
+Edit the `contentData` array in `public/app.js`:
 - Use Disney RipCut image delivery system
 - Include vertical posters (Disney+ and Hulu Originals) or 16:9 images (Hulu standard)
 - Set mood-matched gradient colors for letterbox backgrounds
@@ -190,7 +190,7 @@ const SESSION_SIZE = 10; // Change to show more/fewer tiles per session
 ```
 
 ### Styling
-- Edit `styles.css` to change colors, sizes, and animations
+- Edit `public/styles.css` to change colors, sizes, and animations
 - Current color scheme: Purple gradient background
 - Swipe indicators: Red (NOPE), Green (LIKE), Blue (Watchlist)
 - Fully responsive with breakpoints at 1024px, 768px, 480px, 360px, and landscape
@@ -230,11 +230,14 @@ For production integration, the app provides hooks for:
 
 ```
 Swipe Watch/
-├── index.html          # Main HTML structure with onboarding (171 lines)
-├── styles.css          # All styling, animations, and responsive design (1281 lines)
-├── app.js              # Application logic, swipe handling, session management (1564 lines)
-├── disney-coin.png     # Disney Coins reward image
-├── firebase.json       # Firebase Hosting configuration (no-cache headers)
+├── public/             # Deployed site root (the ONLY directory Firebase Hosting serves)
+│   ├── index.html      # Main HTML structure with onboarding
+│   ├── styles.css      # All styling, animations, and responsive design
+│   ├── app.js          # Application logic, swipe handling, session management
+│   ├── gtag-init.js    # Google Analytics bootstrap (external so the CSP can forbid inline script)
+│   ├── disney-coin.png # Disney Coins reward image
+│   └── disney-dollar.jpg # Unused asset (not referenced in code)
+├── firebase.json       # Firebase Hosting configuration (public/ root, security headers, no-cache headers)
 ├── .firebaserc         # Firebase project configuration
 ├── README.md           # This file
 ├── RIPCUT_GUIDE.md     # Disney RipCut image system documentation

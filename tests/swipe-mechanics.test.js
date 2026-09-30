@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-const html = readFileSync(resolve(__dirname, '../index.html'), 'utf-8');
-const appJs = readFileSync(resolve(__dirname, '../app.js'), 'utf-8');
+const html = readFileSync(resolve(__dirname, '../public/index.html'), 'utf-8');
+const appJs = readFileSync(resolve(__dirname, '../public/app.js'), 'utf-8');
 
 function setupDOM() {
   document.documentElement.innerHTML = '';
