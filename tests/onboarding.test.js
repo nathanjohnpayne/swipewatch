@@ -58,13 +58,29 @@ describe('Onboarding', () => {
   });
 
   it('resets onboarding when pool is exhausted and user restarts', () => {
-    // Mark all content as shown to exhaust pool
-    loadApp();
-
-    // Simulate setting onboarding as completed
+    // Mark all content as shown to exhaust the pool
+    const allIds = [...appJs.matchAll(/^\s*id: (\d+),$/gm)].map((m) => Number(m[1]));
+    expect(allIds.length).toBeGreaterThan(0);
+    localStorage.setItem('swipewatch_shown_content', JSON.stringify(allIds));
     localStorage.setItem('swipewatch_onboarding_completed', 'true');
 
-    // Verify the code removes onboarding key during pool-exhausted restart
-    expect(appJs).toContain("localStorage.removeItem('swipewatch_onboarding_completed')");
+    vi.useFakeTimers();
+    loadApp();
+    const likeBtn = document.getElementById('like-btn');
+    const endScreen = document.getElementById('end-screen');
+    for (let i = 0; i < 20 && endScreen.classList.contains('hidden'); i++) {
+      likeBtn.click();
+      vi.advanceTimersByTime(500);
+    }
+    expect(endScreen.classList.contains('hidden')).toBe(false);
+
+    const restartBtn = document.getElementById('restart-btn');
+    expect(restartBtn.textContent).toBe('Start Fresh');
+    restartBtn.click();
+
+    // Pool-exhausted restart clears the onboarding flag and shows onboarding
+    expect(localStorage.getItem('swipewatch_onboarding_completed')).toBeNull();
+    expect(document.getElementById('onboarding').classList.contains('hidden')).toBe(false);
+    vi.useRealTimers();
   });
 });
