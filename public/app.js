@@ -1195,17 +1195,50 @@ const DISCOVERY_MODES = [
 
 let activeMode = null;
 
-// Load shown content from localStorage
-function loadShownContent() {
-    const stored = localStorage.getItem('swipewatch_shown_content');
-    if (stored) {
-        shownContent = JSON.parse(stored);
+// Web Storage helpers. Storage can be unavailable (blocked cookies, some
+// private modes) or hold corrupt/hand-edited values; every access is guarded
+// so a bad value degrades to a default instead of breaking the app.
+function storageGet(storage, key) {
+    try {
+        return window[storage].getItem(key);
+    } catch (_) {
+        return null;
     }
+}
+
+function storageSet(storage, key, value) {
+    try {
+        window[storage].setItem(key, value);
+    } catch (_) {
+        // Quota exceeded or storage unavailable: keep running in memory.
+    }
+}
+
+function storageRemove(storage, key) {
+    try {
+        window[storage].removeItem(key);
+    } catch (_) {
+        // Storage unavailable: nothing to remove.
+    }
+}
+
+// Load shown content from localStorage (defaults to [] when missing/invalid)
+function loadShownContent() {
+    let parsed = [];
+    const stored = storageGet('localStorage', 'swipewatch_shown_content');
+    if (stored) {
+        try {
+            parsed = JSON.parse(stored);
+        } catch (_) {
+            parsed = [];
+        }
+    }
+    shownContent = Array.isArray(parsed) ? parsed.filter(id => Number.isFinite(id)) : [];
 }
 
 // Save shown content to localStorage
 function saveShownContent() {
-    localStorage.setItem('swipewatch_shown_content', JSON.stringify(shownContent));
+    storageSet('localStorage', 'swipewatch_shown_content', JSON.stringify(shownContent));
 }
 
 // Get next session of content
@@ -1242,17 +1275,18 @@ let stats = {
     disliked: 0
 };
 
-// Coin bank persistence
+// Coin bank persistence (defaults to 0 when missing/invalid/negative)
 function loadCoinBank() {
-    return parseInt(localStorage.getItem('swipewatch_coin_bank') || '0', 10);
+    const value = Number.parseInt(storageGet('localStorage', 'swipewatch_coin_bank') || '0', 10);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function saveCoinBank(total) {
-    localStorage.setItem('swipewatch_coin_bank', String(total));
+    storageSet('localStorage', 'swipewatch_coin_bank', String(total));
 }
 
 function resetCoinBank() {
-    localStorage.removeItem('swipewatch_coin_bank');
+    storageRemove('localStorage', 'swipewatch_coin_bank');
 }
 
 let coinBankTotal = loadCoinBank();
@@ -1303,8 +1337,36 @@ let idleTimeout = null;
 // Gesture demo state
 let gestureDemoShown = false;
 
+// Swipe animation state. While a card's 300ms exit animation runs, further
+// swipes (buttons, drags) are ignored so the stack cannot be advanced twice.
+const SWIPE_ANIMATION_MS = 300;
+let isAnimating = false;
+let swipeTimer = null;
+
+// Per-card listener cleanup. Each card's drag listeners (including the ones
+// on document) are registered with an AbortController signal and removed
+// when the card is swiped or the stack is rebuilt.
+const swipeListenerControllers = new Map();
+
+function detachSwipeListeners(card) {
+    const controller = swipeListenerControllers.get(card);
+    if (controller) {
+        controller.abort();
+        swipeListenerControllers.delete(card);
+    }
+}
+
+function detachAllSwipeListeners() {
+    swipeListenerControllers.forEach(controller => controller.abort());
+    swipeListenerControllers.clear();
+}
+
 // Initialize app
 function init() {
+    clearTimeout(swipeTimer);
+    swipeTimer = null;
+    isAnimating = false;
+    detachAllSwipeListeners();
     currentIndex = 0;
     stats = { liked: 0, superLiked: 0, disliked: 0 };
     cardStack.replaceChildren();
@@ -1429,17 +1491,35 @@ function adjustColor(color, amount) {
 }
 
 // Add swipe event listeners
+// Pointer travel (px) before a press becomes a drag. Below this a press is a
+// tap/click and never swipes; a swipe still needs SWIPE_THRESHOLD of travel.
+const DRAG_START_THRESHOLD = 10;
+const SWIPE_THRESHOLD = 100;
+
 function addSwipeListeners(card) {
+    if (swipeListenerControllers.has(card)) return;
+    const controller = new AbortController();
+    swipeListenerControllers.set(card, controller);
+    const { signal } = controller;
+
     let startX = 0;
     let startY = 0;
     let currentX = 0;
     let currentY = 0;
     let isDragging = false;
+    let hasMoved = false;
 
     const handleStart = (e) => {
+        if (isAnimating) return;
         isDragging = true;
+        hasMoved = false;
         startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
         startY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+        // Reset the end point to the start point so a press with no movement
+        // has zero delta (stale coordinates from a previous drag used to be
+        // read here and could register a tap as a swipe).
+        currentX = startX;
+        currentY = startY;
 
         cancelIdlePulse(card);
         cancelGestureDemo(card);
@@ -1454,6 +1534,11 @@ function addSwipeListeners(card) {
 
         const deltaX = currentX - startX;
         const deltaY = currentY - startY;
+
+        if (!hasMoved) {
+            if (Math.hypot(deltaX, deltaY) < DRAG_START_THRESHOLD) return;
+            hasMoved = true;
+        }
         const rotation = deltaX * 0.1;
 
         card.style.transform = `translate(${deltaX}px, ${deltaY}px) rotate(${rotation}deg)`;
@@ -1464,16 +1549,15 @@ function addSwipeListeners(card) {
 
         const absX = Math.abs(deltaX);
         const absY = Math.abs(deltaY);
-        const ACTION_THRESHOLD = 100;
 
         if (absY > absX && deltaY < -20) {
-            const progress = Math.min(1, Math.abs(deltaY) / ACTION_THRESHOLD);
+            const progress = Math.min(1, Math.abs(deltaY) / SWIPE_THRESHOLD);
             showIndicatorScaled('super', progress);
         } else if (absX > absY && deltaX < -20) {
-            const progress = Math.min(1, absX / ACTION_THRESHOLD);
+            const progress = Math.min(1, absX / SWIPE_THRESHOLD);
             showIndicatorScaled('nope', progress);
         } else if (absX > absY && deltaX > 20) {
-            const progress = Math.min(1, absX / ACTION_THRESHOLD);
+            const progress = Math.min(1, absX / SWIPE_THRESHOLD);
             showIndicatorScaled('like', progress);
         } else {
             hideAllIndicators();
@@ -1489,11 +1573,14 @@ function addSwipeListeners(card) {
         const absX = Math.abs(deltaX);
         const absY = Math.abs(deltaY);
 
-        if (absY > absX && deltaY < -100) {
+        if (!hasMoved) {
+            // Tap/click without a drag: never a swipe.
+            armIdlePulse();
+        } else if (absY > absX && deltaY < -SWIPE_THRESHOLD) {
             swipeCard(card, 'up');
-        } else if (absX > absY && deltaX < -100) {
+        } else if (absX > absY && deltaX < -SWIPE_THRESHOLD) {
             swipeCard(card, 'left');
-        } else if (absX > absY && deltaX > 100) {
+        } else if (absX > absY && deltaX > SWIPE_THRESHOLD) {
             swipeCard(card, 'right');
         } else {
             card.style.transform = '';
@@ -1503,13 +1590,13 @@ function addSwipeListeners(card) {
         }
     };
 
-    card.addEventListener('mousedown', handleStart);
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleEnd);
+    card.addEventListener('mousedown', handleStart, { signal });
+    document.addEventListener('mousemove', handleMove, { signal });
+    document.addEventListener('mouseup', handleEnd, { signal });
 
-    card.addEventListener('touchstart', handleStart);
-    document.addEventListener('touchmove', handleMove, { passive: false });
-    document.addEventListener('touchend', handleEnd);
+    card.addEventListener('touchstart', handleStart, { signal });
+    document.addEventListener('touchmove', handleMove, { passive: false, signal });
+    document.addEventListener('touchend', handleEnd, { signal });
 }
 
 // Google Analytics event tracking
@@ -1534,28 +1621,36 @@ function trackEvent(action, label, value) {
 
 // Swipe card with animation
 function swipeCard(card, direction) {
+    // Ignore re-entry while the previous card is still animating out, and any
+    // card that is not the current top card.
+    if (isAnimating || !card || Number(card.dataset.index) !== currentIndex) return;
+    const swipedIndex = currentIndex;
+    const content = sessionContent[swipedIndex];
+    if (!content) return;
+    isAnimating = true;
+    detachSwipeListeners(card);
+
     card.classList.add('animating');
     card.style.boxShadow = '';
     hideAllIndicators();
 
-    const content = sessionContent[currentIndex];
     const contentTitle = content.title;
 
     switch(direction) {
         case 'left':
             card.style.transform = 'translateX(-150%) rotate(-30deg)';
             stats.disliked++;
-            trackEvent('dislike', contentTitle, currentIndex);
+            trackEvent('dislike', contentTitle, swipedIndex);
             break;
         case 'right':
             card.style.transform = 'translateX(150%) rotate(30deg)';
             stats.liked++;
-            trackEvent('like', contentTitle, currentIndex);
+            trackEvent('like', contentTitle, swipedIndex);
             break;
         case 'up':
             card.style.transform = 'translateY(-150%) rotate(5deg)';
             stats.superLiked++;
-            trackEvent('super_like', contentTitle, currentIndex);
+            trackEvent('super_like', contentTitle, swipedIndex);
             break;
     }
 
@@ -1567,32 +1662,36 @@ function swipeCard(card, direction) {
     updateCoinBadge();
 
     // Sync progress bar with card exit animation
-    currentIndex++;
+    const nextIndex = swipedIndex + 1;
+    currentIndex = nextIndex;
     updateProgress();
 
     showSwipeToast();
 
-    setTimeout(() => {
+    swipeTimer = setTimeout(() => {
+        swipeTimer = null;
         shownContent.push(content.id);
         saveShownContent();
 
         card.remove();
 
-        if (currentIndex + 2 < sessionContent.length) {
-            createCard(currentIndex + 2);
+        if (nextIndex + 2 < sessionContent.length) {
+            createCard(nextIndex + 2);
         }
 
-        if (currentIndex >= sessionContent.length) {
+        isAnimating = false;
+
+        if (nextIndex >= sessionContent.length) {
             showEndScreen();
         } else {
-            const nextCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
+            const nextCard = cardStack.querySelector(`.card[data-index="${nextIndex}"]`);
             if (nextCard) {
                 addSwipeListeners(nextCard);
                 nextCard.style.transform = '';
                 armIdlePulse();
             }
         }
-    }, 300);
+    }, SWIPE_ANIMATION_MS);
 }
 
 // Show swipe indicator with scaled opacity/size
@@ -1637,7 +1736,7 @@ function cancelIdlePulse(card) {
 
 // Gesture demo helpers
 function triggerGestureDemo() {
-    if (sessionStorage.getItem('swipewatch_gesture_demo')) return;
+    if (storageGet('sessionStorage', 'swipewatch_gesture_demo')) return;
     const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
     if (!topCard) return;
 
@@ -1653,7 +1752,7 @@ function triggerGestureDemo() {
         topCard.removeEventListener('animationend', onEnd);
         topCard.classList.remove('gesture-demo');
         flash.remove();
-        sessionStorage.setItem('swipewatch_gesture_demo', 'true');
+        storageSet('sessionStorage', 'swipewatch_gesture_demo', 'true');
         gestureDemoShown = false;
         armIdlePulse();
     }, { once: true });
@@ -1664,7 +1763,7 @@ function cancelGestureDemo(card) {
     card.classList.remove('gesture-demo');
     const flash = card.querySelector('.gesture-like-flash');
     if (flash) flash.remove();
-    sessionStorage.setItem('swipewatch_gesture_demo', 'true');
+    storageSet('sessionStorage', 'swipewatch_gesture_demo', 'true');
     gestureDemoShown = false;
 }
 
@@ -1757,16 +1856,19 @@ function animateCountUp(el, target) {
 
 // Button handlers
 dislikeBtn.addEventListener('click', () => {
+    if (isAnimating) return;
     const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
     if (topCard) swipeCard(topCard, 'left');
 });
 
 likeBtn.addEventListener('click', () => {
+    if (isAnimating) return;
     const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
     if (topCard) swipeCard(topCard, 'right');
 });
 
 superBtn.addEventListener('click', () => {
+    if (isAnimating) return;
     const topCard = cardStack.querySelector(`.card[data-index="${currentIndex}"]`);
     if (topCard) swipeCard(topCard, 'up');
 });
@@ -1779,7 +1881,7 @@ restartBtn.addEventListener('click', () => {
         coinBankTotal = 0;
         shownContent = [];
         saveShownContent();
-        localStorage.removeItem('swipewatch_onboarding_completed');
+        storageRemove('localStorage', 'swipewatch_onboarding_completed');
         onboarding.classList.remove('hidden');
         init();
     } else {
@@ -1842,14 +1944,14 @@ unlockCancelBtn.addEventListener('click', () => {
 // Onboarding handler
 startBtn.addEventListener('click', () => {
     onboarding.classList.add('hidden');
-    localStorage.setItem('swipewatch_onboarding_completed', 'true');
+    storageSet('localStorage', 'swipewatch_onboarding_completed', 'true');
     trackEvent('onboarding', 'User completed onboarding', 0);
     triggerGestureDemo();
 });
 
 // Check if onboarding has been completed
 function checkOnboarding() {
-    const completed = localStorage.getItem('swipewatch_onboarding_completed');
+    const completed = storageGet('localStorage', 'swipewatch_onboarding_completed');
     if (completed === 'true') {
         onboarding.classList.add('hidden');
     }
