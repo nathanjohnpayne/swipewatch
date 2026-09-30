@@ -89,7 +89,7 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 ### Session Management
 - Each session shows 10 random tiles from a pool of 106
 - Content IDs are tracked in localStorage
-- Once all 106 titles have been shown, the cycle resets
+- Once all 106 titles have been shown, the cycle resets (in a discovery mode the pool is that mode's subset, which repeats once its titles have all been shown)
 - If fewer than 10 remain unshown, a partial session shows all remaining
 - Ensures users see all content before repeats
 

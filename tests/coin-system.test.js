@@ -133,12 +133,34 @@ describe('Storage robustness', () => {
     };
     window.localStorage = throwing;
     window.sessionStorage = throwing;
+    // Deterministic shuffle: if swiped history were lost, the next session
+    // would draw exactly the same titles again.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     try {
       expect(() => loadApp()).not.toThrow();
       expect(document.getElementById('coin-badge-count').textContent).toBe('0');
-      document.getElementById('like-btn').click();
-      vi.advanceTimersByTime(500);
-      expect(document.getElementById('coin-badge-count').textContent).toBe('1');
+
+      // Swipe through a whole session, recording each top card's title.
+      const endScreen = document.getElementById('end-screen');
+      const topTitle = () => {
+        const top = [...document.querySelectorAll('#card-stack .card')].find((c) => !c.classList.contains('animating'));
+        return top ? top.querySelector('.card-title').textContent : null;
+      };
+      const firstSession = new Set();
+      for (let i = 0; i < 20 && endScreen.classList.contains('hidden'); i++) {
+        firstSession.add(topTitle());
+        document.getElementById('like-btn').click();
+        vi.advanceTimersByTime(500);
+        if (i === 0) expect(document.getElementById('coin-badge-count').textContent).toBe('1');
+      }
+      expect(endScreen.classList.contains('hidden')).toBe(false);
+      expect(firstSession.size).toBe(10);
+
+      // History kept in memory: the next session does not repeat those titles.
+      document.getElementById('restart-btn').click();
+      const secondSession = [...document.querySelectorAll('#card-stack .card .card-title')].map((t) => t.textContent);
+      expect(secondSession.length).toBeGreaterThan(0);
+      secondSession.forEach((t) => expect(firstSession.has(t)).toBe(false));
     } finally {
       window.localStorage = original;
       window.sessionStorage = originalSession;

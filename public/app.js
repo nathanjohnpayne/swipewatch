@@ -1196,9 +1196,15 @@ const DISCOVERY_MODES = [
 let activeMode = null;
 
 // Web Storage helpers. Storage can be unavailable (blocked cookies, some
-// private modes) or hold corrupt/hand-edited values; every access is guarded
-// so a bad value degrades to a default instead of breaking the app.
+// private modes), full, or hold corrupt/hand-edited values; every access is
+// guarded so a bad value degrades to a default instead of breaking the app.
+// Writes that the browser rejects are kept in memory for the rest of the
+// page's life, so session history (shown titles, coins) still accumulates.
+const memoryStorage = { localStorage: new Map(), sessionStorage: new Map() };
+
 function storageGet(storage, key) {
+    const memory = memoryStorage[storage];
+    if (memory.has(key)) return memory.get(key);
     try {
         return window[storage].getItem(key);
     } catch (_) {
@@ -1207,18 +1213,22 @@ function storageGet(storage, key) {
 }
 
 function storageSet(storage, key, value) {
+    const memory = memoryStorage[storage];
     try {
         window[storage].setItem(key, value);
+        memory.delete(key);
     } catch (_) {
-        // Quota exceeded or storage unavailable: keep running in memory.
+        // Quota exceeded or storage unavailable: keep the value in memory.
+        memory.set(key, String(value));
     }
 }
 
 function storageRemove(storage, key) {
+    memoryStorage[storage].delete(key);
     try {
         window[storage].removeItem(key);
     } catch (_) {
-        // Storage unavailable: nothing to remove.
+        // Storage unavailable: the in-memory copy is already gone.
     }
 }
 
