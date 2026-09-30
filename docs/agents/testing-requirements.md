@@ -1,6 +1,6 @@
 # Testing Requirements
 
-**Automated tests.** `npm test` runs the Vitest suites in `tests/*.test.js` (jsdom), which load the real `index.html` and `app.js` and drive them through the DOM. `npm run lint` runs ESLint. Both run in CI on every push and pull request via `.github/workflows/repo_lint_local.yml` (`npm ci && npm test && npm run lint`), so `package-lock.json` is committed and must be updated with any `package.json` change. There is still no build step. Add or extend a Vitest case for every behavior fix (swipe/tap handling, stack and animation state, storage parsing, coin bank).
+**Automated tests.** `npm test` runs the Vitest suites in `tests/*.test.js` (jsdom), which load the real `public/index.html` and `public/app.js` and drive them through the DOM. `npm run lint` runs ESLint. Both run in CI on every push and pull request via `.github/workflows/repo_lint_local.yml` (`npm ci && npm test && npm run lint`), so `package-lock.json` is committed and must be updated with any `package.json` change. There is still no build step. Add or extend a Vitest case for every behavior fix (swipe/tap handling, stack and animation state, storage parsing, coin bank).
 
 **Manual testing checklist (run before any PR that changes UI behavior):**
 1. Onboarding screen appears on first visit (clear localStorage to test)

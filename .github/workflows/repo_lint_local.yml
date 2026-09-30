@@ -7,8 +7,8 @@ name: repo-lint-local
 # repo_lint.yml, and agent-review.yml / codex-review-check.sh observe its
 # checks on the PR head (#655).
 #
-# It runs the app's own test suite (vitest + jsdom against the real app.js /
-# index.html) and ESLint, which no other workflow executes.
+# It runs the app's own test suite (vitest + jsdom against the real public/app.js /
+# public/index.html) and ESLint, which no other workflow executes.
 
 on: [push, pull_request]
 
