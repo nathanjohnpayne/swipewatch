@@ -124,15 +124,18 @@ describe('Storage robustness', () => {
 
   it('keeps working when storage throws', () => {
     vi.useFakeTimers();
-    const original = window.localStorage;
-    const originalSession = window.sessionStorage;
+    // Swap the storage properties via defineProperty (not assignment) so the
+    // test does not depend on how the environment defines them, and restore
+    // the exact original descriptors afterwards.
+    const localDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    const sessionDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
     const throwing = {
       getItem: () => { throw new Error('blocked'); },
       setItem: () => { throw new Error('blocked'); },
       removeItem: () => { throw new Error('blocked'); },
     };
-    window.localStorage = throwing;
-    window.sessionStorage = throwing;
+    Object.defineProperty(window, 'localStorage', { value: throwing });
+    Object.defineProperty(window, 'sessionStorage', { value: throwing });
     // Deterministic shuffle: if swiped history were lost, the next session
     // would draw exactly the same titles again.
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -162,8 +165,8 @@ describe('Storage robustness', () => {
       expect(secondSession.length).toBeGreaterThan(0);
       secondSession.forEach((t) => expect(firstSession.has(t)).toBe(false));
     } finally {
-      window.localStorage = original;
-      window.sessionStorage = originalSession;
+      Object.defineProperty(window, 'localStorage', localDescriptor);
+      Object.defineProperty(window, 'sessionStorage', sessionDescriptor);
       vi.useRealTimers();
     }
   });
