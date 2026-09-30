@@ -93,6 +93,28 @@ describe('Storage robustness', () => {
     expect(document.getElementById('coin-badge-count').textContent).toBe('0');
   });
 
+  it.each(['25garbage', '25.5', '1e3', ' 7', ''])('treats a malformed coin bank %j as 0', (value) => {
+    localStorage.setItem('swipewatch_coin_bank', value);
+    loadApp();
+    expect(document.getElementById('coin-badge-count').textContent).toBe('0');
+  });
+
+  it('keeps working when acquiring the storage objects throws', () => {
+    const localDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    const sessionDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+    const blocked = () => { throw new Error('blocked getter'); };
+    Object.defineProperty(window, 'localStorage', { get: blocked, configurable: true });
+    Object.defineProperty(window, 'sessionStorage', { get: blocked, configurable: true });
+    try {
+      expect(() => loadApp()).not.toThrow();
+      expect(document.getElementById('coin-badge-count').textContent).toBe('0');
+      expect(document.querySelectorAll('#card-stack .card').length).toBeGreaterThan(0);
+    } finally {
+      Object.defineProperty(window, 'localStorage', localDescriptor);
+      Object.defineProperty(window, 'sessionStorage', sessionDescriptor);
+    }
+  });
+
   it('recovers from corrupt shown-content JSON', () => {
     localStorage.setItem('swipewatch_shown_content', '{not json');
     expect(() => loadApp()).not.toThrow();

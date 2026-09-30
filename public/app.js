@@ -1287,8 +1287,12 @@ let stats = {
 
 // Coin bank persistence (defaults to 0 when missing/invalid/negative)
 function loadCoinBank() {
-    const value = Number.parseInt(storageGet('localStorage', 'swipewatch_coin_bank') || '0', 10);
-    return Number.isFinite(value) && value >= 0 ? value : 0;
+    const stored = storageGet('localStorage', 'swipewatch_coin_bank');
+    // Whole-string non-negative integer only; anything else (e.g. '25garbage',
+    // '25.5', '-3') falls back to 0.
+    if (stored === null || !/^\d+$/.test(stored)) return 0;
+    const value = Number(stored);
+    return Number.isSafeInteger(value) ? value : 0;
 }
 
 function saveCoinBank(total) {
