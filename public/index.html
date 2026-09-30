@@ -7,16 +7,11 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Swipe Watch - Disney Content Discovery</title>
-    <link rel="stylesheet" href="styles.css?v=1.8">
+    <link rel="stylesheet" href="styles.css?v=1.9">
 
-    <!-- Google Analytics -->
+    <!-- Google Analytics (bootstrap is external so the CSP can forbid inline script) -->
+    <script src="gtag-init.js?v=1.9"></script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-0SFL3RGC0H"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', 'G-0SFL3RGC0H');
-    </script>
 </head>
 <body>
     <div class="app-container">
@@ -166,6 +161,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=1.8"></script>
+    <script src="app.js?v=1.9"></script>
 </body>
 </html>

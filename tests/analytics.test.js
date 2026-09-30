@@ -3,8 +3,8 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { runInNewContext } from 'vm';
 
-const appJs = readFileSync(resolve(__dirname, '../app.js'), 'utf-8');
-const html = readFileSync(resolve(__dirname, '../index.html'), 'utf-8');
+const appJs = readFileSync(resolve(__dirname, '../public/app.js'), 'utf-8');
+const html = readFileSync(resolve(__dirname, '../public/index.html'), 'utf-8');
 
 function setupDOM() {
   document.documentElement.innerHTML = '';

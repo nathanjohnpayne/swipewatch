@@ -28,7 +28,11 @@ The following tool config directories must exist and contain only configuration 
 **Intentionally absent directories (documented deviations from the standard):**
 
 - `dist/` — No build step; static files deployed directly from source. See `.ai_context.md`.
-- `src/` — Source files live at repository root. See `.ai_context.md`.
+- `src/` — Site source files live in `public/` (the Firebase Hosting root). See `.ai_context.md`.
+
+**Declared extra top-level directory:**
+
+- `public/` — Firebase Hosting root and the only deployed directory. It must contain only site assets; never place repo tooling, tests, docs, or local agent/editor config inside it, and never point `firebase.json` `hosting.public` back at the repository root. Declared in `.repo-template.yml` `extra_top_level_dirs`; justification in `plans/hosting-public-dir.md`.
 
 ## Forbidden Patterns
 

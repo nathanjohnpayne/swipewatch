@@ -153,8 +153,10 @@ let activeMode = null;  // Currently active discovery mode (set during unlock ba
 ```
 
 #### Firebase Config (firebase.json)
+- `"public": "public"` — only the `public/` directory is deployed; everything else in the repo (tooling, tests, docs, dotfiles, local agent config) is never uploaded
+- Security headers on every response: `Content-Security-Policy` (no inline script or inline styles; allows `self`, Google Tag Manager / Google Analytics, and `disney.images.edge.bamgrid.com` images), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
 - No-cache headers for JS, CSS, and HTML files
-- SPA-style rewrites (non-asset routes → `index.html`)
+- SPA-style rewrite for extensionless routes only (`^/[^.]*$` → `index.html`); missing files with an extension return 404
 - Ignores markdown files and dotfiles in deployment
 
 ### Image System
@@ -240,10 +242,10 @@ See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 ### Local Development
 ```bash
 # Simply open in browser
-open index.html
+open public/index.html
 
 # Or use a local server
-python -m http.server 8000
+python3 -m http.server 8000 -d public
 ```
 
 ---
