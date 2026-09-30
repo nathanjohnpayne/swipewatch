@@ -10,7 +10,12 @@ name: repo-lint-local
 # It runs the app's own test suite (vitest + jsdom against the real public/app.js /
 # public/index.html) and ESLint, which no other workflow executes.
 
-on: [push, pull_request]
+# push is limited to main so a PR-branch commit runs this once (via
+# pull_request), not twice; check_ci_scripts_wired still sees both triggers.
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
