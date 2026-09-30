@@ -1374,6 +1374,11 @@ function createCard(index) {
         if (layered) {
             const titleImg = createElement('img', 'poster-title-image');
             titleImg.setAttribute('alt', content.title);
+            // A broken title treatment is hidden; the background still shows
+            // and the title remains in the card info below.
+            titleImg.addEventListener('error', () => {
+                titleImg.style.display = 'none';
+            }, { once: true });
             titleImg.setAttribute('src', content.titleImage);
             poster.appendChild(titleImg);
         }

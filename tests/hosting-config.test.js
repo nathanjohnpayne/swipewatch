@@ -88,14 +88,22 @@ describe('Hosting config', () => {
   });
 
   it('index.html has no inline scripts, inline handlers, or style attributes', () => {
-    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+    // Parse with the DOM rather than regex so tag/attribute case and
+    // whitespace variants are all covered.
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const scripts = [...doc.querySelectorAll('script')];
     expect(scripts.length).toBeGreaterThan(0);
-    scripts.forEach(([, attrs, body]) => {
-      expect(attrs).toMatch(/\bsrc=/);
-      expect(body.trim()).toBe('');
+    scripts.forEach((script) => {
+      expect(script.hasAttribute('src')).toBe(true);
+      expect(script.textContent.trim()).toBe('');
     });
-    expect(html).not.toMatch(/\son[a-z]+\s*=/i);
-    expect(html).not.toMatch(/\sstyle\s*=/i);
+    expect(doc.querySelectorAll('style').length).toBe(0);
+    doc.querySelectorAll('*').forEach((el) => {
+      [...el.attributes].forEach(({ name }) => {
+        expect(name.toLowerCase().startsWith('on')).toBe(false);
+        expect(name.toLowerCase()).not.toBe('style');
+      });
+    });
   });
 
   it('app.js does not build markup with innerHTML or inline handlers', () => {
@@ -131,6 +139,25 @@ describe('Card rendering without inline handlers', () => {
 
     expect(poster.style.display).toBe('none');
     expect(fallback.style.display).toBe('flex');
+  });
+
+  it('hides a title treatment image that fails to load', () => {
+    // Leave only a layered poster title (id 103 has a titleImage) unshown so
+    // the top card deterministically has a title treatment.
+    const allIds = [...appJs.matchAll(/^\s*id: (\d+),$/gm)].map((m) => Number(m[1]));
+    document.documentElement.innerHTML = '';
+    document.write(html);
+    document.close();
+    localStorage.setItem('swipewatch_shown_content', JSON.stringify(allIds.filter((id) => id !== 103)));
+    new Function(appJs)();
+
+    const titleImg = document.querySelector('#card-stack .card[data-index="0"] img.poster-title-image');
+    expect(titleImg).toBeTruthy();
+    expect(titleImg.style.display).toBe('');
+    titleImg.dispatchEvent(new Event('error'));
+    expect(titleImg.style.display).toBe('none');
+    // The background poster stays visible
+    expect(titleImg.parentElement.style.display).toBe('');
   });
 
   it('renders card text as text, not HTML', () => {
