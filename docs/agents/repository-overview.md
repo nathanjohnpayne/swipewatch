@@ -16,12 +16,14 @@ Swipe Watch is a Tinder-style web application for discovering Disney+ and Hulu c
 ### Project Structure
 ```
 swipewatch/
-├── index.html          # Main HTML structure with onboarding (171 lines)
-├── app.js              # Core application logic (1564 lines)
-├── styles.css          # All styling, animations, responsive design (1281 lines)
-├── disney-coin.png     # Disney Coins reward image (used in end screen)
-├── disney-dollar.jpg   # Unused asset (not referenced in code)
-├── firebase.json       # Firebase Hosting config (no-cache headers, SPA rewrites)
+├── public/             # Firebase Hosting root — the only deployed directory
+│   ├── index.html      # Main HTML structure with onboarding
+│   ├── app.js          # Core application logic
+│   ├── styles.css      # All styling, animations, responsive design
+│   ├── gtag-init.js    # Google Analytics bootstrap (external for the CSP)
+│   ├── disney-coin.png # Disney Coins reward image (used in end screen)
+│   └── disney-dollar.jpg # Unused asset (not referenced in code)
+├── firebase.json       # Firebase Hosting config (public/ root, security headers, no-cache headers, SPA rewrite)
 ├── .firebaserc         # Firebase project configuration
 ├── README.md           # Main documentation
 ├── RIPCUT_GUIDE.md     # Disney RipCut image system documentation
@@ -33,7 +35,7 @@ swipewatch/
 ├── rules/              # Repository-level binding constraints
 ├── plans/              # Feature rollout and migration plans
 ├── specs/              # Feature specifications and acceptance criteria
-├── tests/              # Test definitions (placeholder)
+├── tests/              # Vitest suites for public/ + hub-propagated shell tests
 ├── functions/          # Serverless functions (placeholder)
 ├── docs/               # Extended documentation
 └── scripts/ci/         # CI enforcement scripts

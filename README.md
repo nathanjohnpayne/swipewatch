@@ -14,7 +14,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 ### Content Management
 - **Session-based rotation**: 10 tiles per session
 - **Smart tracking**: Tiles don't repeat until all content has been shown
-- **80 total titles**: 45 Disney+ and 35 Hulu titles
+- **106 total titles**: 45 in the Disney+ ID range (1–45) and 61 in the Hulu ID range (101–162)
 - **Dynamic shuffling**: Random order each session via Fisher-Yates algorithm
 - **Partial sessions**: If fewer than 10 unshown items remain, shows all remaining
 
@@ -32,7 +32,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 - **Disney Coins**: Earn 1 coin per swipe, persistent bank across sessions
 - **Discovery Modes**: Spend 25 coins to unlock curated batches (Disney Vault, Streaming Originals, Nature & Discovery, New & Trending)
 - End screen with count-up animation, session summary, and rotating CTA
-- Full pool reset with "Start Fresh" when all 80 titles shown
+- Full pool reset with "Start Fresh" when all 106 titles shown
 
 ### User Experience
 - Fully responsive design (mobile, tablet, desktop, landscape)
@@ -48,7 +48,7 @@ A Tinder-style web app for discovering Disney+ and Hulu content through swipe in
 Visit https://swipewatch.web.app
 
 ### Local Development
-1. Open `index.html` in a web browser
+1. Open `public/index.html` in a web browser (or serve the `public/` directory, e.g. `python3 -m http.server 8000 -d public`)
 2. Complete the onboarding tutorial
 3. Start swiping through 10 cards per session
 4. Earn Disney Coins and unlock discovery modes
@@ -87,9 +87,9 @@ No build process or dependencies required - just HTML, CSS, and vanilla JavaScri
 ## How It Works
 
 ### Session Management
-- Each session shows 10 random tiles from a pool of 80
+- Each session shows 10 random tiles from a pool of 106
 - Content IDs are tracked in localStorage
-- Once all 80 titles have been shown, the cycle resets
+- Once all 106 titles have been shown, the cycle resets (in a discovery mode the pool is that mode's subset, which repeats once its titles have all been shown)
 - If fewer than 10 remain unshown, a partial session shows all remaining
 - Ensures users see all content before repeats
 
@@ -177,7 +177,7 @@ The end screen displays:
 
 ### Adding Your Own Content
 
-Edit the `contentData` array in `app.js`:
+Edit the `contentData` array in `public/app.js`:
 - Use Disney RipCut image delivery system
 - Include vertical posters (Disney+ and Hulu Originals) or 16:9 images (Hulu standard)
 - Set mood-matched gradient colors for letterbox backgrounds
@@ -190,7 +190,7 @@ const SESSION_SIZE = 10; // Change to show more/fewer tiles per session
 ```
 
 ### Styling
-- Edit `styles.css` to change colors, sizes, and animations
+- Edit `public/styles.css` to change colors, sizes, and animations
 - Current color scheme: Purple gradient background
 - Swipe indicators: Red (NOPE), Green (LIKE), Blue (Watchlist)
 - Fully responsive with breakpoints at 1024px, 768px, 480px, 360px, and landscape
@@ -230,11 +230,14 @@ For production integration, the app provides hooks for:
 
 ```
 Swipe Watch/
-├── index.html          # Main HTML structure with onboarding (171 lines)
-├── styles.css          # All styling, animations, and responsive design (1281 lines)
-├── app.js              # Application logic, swipe handling, session management (1564 lines)
-├── disney-coin.png     # Disney Coins reward image
-├── firebase.json       # Firebase Hosting configuration (no-cache headers)
+├── public/             # Deployed site root (the ONLY directory Firebase Hosting serves)
+│   ├── index.html      # Main HTML structure with onboarding
+│   ├── styles.css      # All styling, animations, and responsive design
+│   ├── app.js          # Application logic, swipe handling, session management
+│   ├── gtag-init.js    # Google Analytics bootstrap (external so the CSP can forbid inline script)
+│   ├── disney-coin.png # Disney Coins reward image
+│   └── disney-dollar.jpg # Unused asset (not referenced in code)
+├── firebase.json       # Firebase Hosting configuration (public/ root, security headers, no-cache headers)
 ├── .firebaserc         # Firebase project configuration
 ├── README.md           # This file
 ├── RIPCUT_GUIDE.md     # Disney RipCut image system documentation
@@ -277,7 +280,7 @@ Swipe Watch/
 
 ## Content Library
 
-### Current Content (80 titles)
+### Current Content (106 titles)
 
 #### Disney+ Titles (45)
 
@@ -329,7 +332,7 @@ Swipe Watch/
 | 44 | The Greeks | Series | 2016 | History, Docuseries |
 | 45 | Arctic Ascent with Alex Honnold | Series | 2024 | Action and Adventure, Docuseries |
 
-#### Hulu Titles (35)
+#### Hulu Titles (61)
 
 | ID | Title | Type | Year | Genres |
 |----|-------|------|------|--------|
@@ -368,12 +371,38 @@ Swipe Watch/
 | 133 | Cheers | Series | 1982 | Comedy, Classics |
 | 134 | The Mentalist | Series | 2008 | Drama, Procedural |
 | 135 | M*A*S*H | Series | 1972 | Comedy, Drama, Classics |
+| 136 | Andor | Disney+ Original | 2022 | Action and Adventure, Science Fiction |
+| 137 | Boston Legal | Series | 2004 | Drama, Legal |
+| 138 | Alone | Series | 2015 | Documentaries, Adventure, The HISTORY Channel |
+| 139 | New Girl | Series | 2011 | Comedy |
+| 140 | The Simpsons | Series | 1989 | Animation, Comedy |
+| 141 | How I Met Your Mother | Series | 2005 | Comedy, Romance |
+| 142 | Hannah Montana | Series | 2006 | Comedy, Kids |
+| 143 | The Kardashians | Hulu Original Series | 2022 | Reality, Hulu Original |
+| 144 | Criminal Minds | Series | 2005 | Drama, Procedural |
+| 145 | Bones | Series | 2005 | Drama, Procedural |
+| 146 | Secrets of the Bees | Series | 2025 | Documentaries, Animals & Nature |
+| 147 | Futurama | Hulu Original Series | 1999 | Animation, Comedy, Hulu Original |
+| 148 | House | Series | 2004 | Drama, Medical |
+| 149 | Implosion: The Titanic Sub Disaster | Series | 2025 | Documentaries |
+| 150 | Secrets of the Octopus | Series | 2024 | Documentaries, Animals & Nature |
+| 151 | The Nanny | Series | 1993 | Comedy |
+| 152 | Bluey | Series | 2018 | Animation, Kids |
+| 153 | Pretty Baby: Brooke Shields | Hulu Original Series | 2023 | Docuseries, Biography, Hulu Original |
+| 154 | Secrets of the Elephants | Series | 2023 | Animals & Nature, Docuseries |
+| 156 | The Faithful: Women of the Bible | Series | 2026 | Drama, Religion & Spirituality, FOX |
+| 157 | LIGHT & MAGIC | Disney+ Original | 2022 | Docuseries |
+| 158 | The Beach Boys | Disney+ Original | 2024 | Documentaries, Music |
+| 159 | Friends Like These: The Murder of Skylar Neese | Hulu Original Series | 2026 | Docuseries, Hulu Original |
+| 160 | American Godfathers: The Five Families | Series | 2024 | History, Crime, The HISTORY Channel |
+| 161 | Sunny Nights | Series | 2025 | Drama, Comedy |
+| 162 | National Parks: USA | Series | 2024 | Animals & Nature, Docuseries |
 
 ### Image Formats
 - **Disney+ vertical posters (IDs 16-30)**: 381px width, JPEG, layered with title treatment
 - **Disney+ vertical posters (IDs 1-15, 31-45)**: 800px width, WebP, layered with title treatment
-- **Hulu 16:9 images (IDs 101, 102, 104, 106, 108-110, 112, 114)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
-- **Hulu vertical posters (IDs 103, 105, 107, 111, 113, 115-135)**: 800px width, WebP, layered with title treatment
+- **Hulu 16:9 images (IDs 101, 102, 104, 106, 108-110, 112, 114, 139-152)**: 800px width, WebP, letterboxed with mood-matched gradient backgrounds
+- **Hulu vertical posters (IDs 103, 105, 107, 111, 113, 115-138, 153-154, 156-162)**: 800px width, WebP, layered with title treatment
 - Uses Disney's RipCut image delivery system for optimized loading
 
 ## Analytics & Tracking

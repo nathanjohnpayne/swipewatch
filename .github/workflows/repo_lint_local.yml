@@ -1,0 +1,40 @@
+name: repo-lint-local
+
+# Consumer-local CI checks (mergepath#601 annex). repo_lint.yml is
+# manifest-canonical: it is propagated byte-for-byte from mergepath and so
+# cannot carry swipewatch-specific steps. This annex is OPTIONAL and never
+# propagated; scripts/ci/check_ci_scripts_wired scans it as a union with
+# repo_lint.yml, and agent-review.yml / codex-review-check.sh observe its
+# checks on the PR head (#655).
+#
+# It runs the app's own test suite (vitest + jsdom against the real public/app.js /
+# public/index.html) and ESLint, which no other workflow executes.
+
+# push is limited to main so a PR-branch commit runs this once (via
+# pull_request), not twice; check_ci_scripts_wired still sees both triggers.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-lint-local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: npm_ci
+        run: npm ci
+      - name: npm_test
+        run: npm test
+      - name: npm_lint
+        run: npm run lint

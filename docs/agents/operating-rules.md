@@ -3,7 +3,7 @@
 ### Key Concepts
 
 #### Content Types
-The content pool has **80 titles** across two platforms and multiple visual formats:
+The content pool has **106 titles** across two platforms and multiple visual formats:
 
 - **Disney+ Content** (45 items):
   - IDs 1–15: Modern format (WebP, 800px width, `max=800|450`)
@@ -12,9 +12,9 @@ The content pool has **80 titles** across two platforms and multiple visual form
   - All use vertical posters with layered title treatments
   - IDs 7, 9, 11, 34 use `poster_vertical_disney-original_080` label
 
-- **Hulu Content** (35 items):
-  - IDs 101, 102, 104, 106, 108–110, 112, 114: 16:9 letterbox with `standard_art_*_178` labels (9 items)
-  - IDs 103, 105, 107, 111, 113, 115–135: Vertical posters with `poster_vertical_*_080` labels and title treatments (26 items)
+- **Hulu Content** (61 items; IDs 101–162, no 155):
+  - IDs 101, 102, 104, 106, 108–110, 112, 114, 139–152: 16:9 letterbox with `standard_art_*_178` labels (23 items)
+  - IDs 103, 105, 107, 111, 113, 115–138, 153, 154, 156–162: Vertical posters with `poster_vertical_*_080` labels and title treatments (38 items)
 
 #### Swipe Actions
 - **Right Swipe / Heart:** Like — get more recommendations like this
@@ -23,7 +23,7 @@ The content pool has **80 titles** across two platforms and multiple visual form
 
 #### Session Management
 - 10 tiles per session (configurable via `SESSION_SIZE`)
-- 80 total titles in content pool
+- 106 total titles in content pool
 - Smart rotation prevents repeats until all content shown
 - Partial sessions: if fewer than 10 unshown items remain, shows all remaining
 - `localStorage` tracks shown content IDs
@@ -153,8 +153,10 @@ let activeMode = null;  // Currently active discovery mode (set during unlock ba
 ```
 
 #### Firebase Config (firebase.json)
+- `"public": "public"` — only the `public/` directory is deployed; everything else in the repo (tooling, tests, docs, dotfiles, local agent config) is never uploaded
+- Security headers on every response: `Content-Security-Policy` (no inline script or inline styles; allows `self`, Google Tag Manager / Google Analytics, and `disney.images.edge.bamgrid.com` images), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
 - No-cache headers for JS, CSS, and HTML files
-- SPA-style rewrites (non-asset routes → `index.html`)
+- SPA-style rewrite for extensionless routes only (`^/[^.]*$` → `index.html`); missing files with an extension return 404
 - Ignores markdown files and dotfiles in deployment
 
 ### Image System
@@ -240,10 +242,10 @@ See `RIPCUT_GUIDE.md` and `POSTER_GUIDE.md` for detailed documentation.
 ### Local Development
 ```bash
 # Simply open in browser
-open index.html
+open public/index.html
 
 # Or use a local server
-python -m http.server 8000
+python3 -m http.server 8000 -d public
 ```
 
 ---

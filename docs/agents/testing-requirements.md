@@ -1,8 +1,8 @@
 # Testing Requirements
 
-No automated test framework is currently in use. This is a static site with no build step.
+**Automated tests.** `npm test` runs the Vitest suites in `tests/*.test.js` (jsdom), which load the real `public/index.html` and `public/app.js` and drive them through the DOM. `npm run lint` runs ESLint. Both run in CI on every push and pull request via `.github/workflows/repo_lint_local.yml` (`npm ci && npm test && npm run lint`), so `package-lock.json` is committed and must be updated with any `package.json` change. There is still no build step. Add or extend a Vitest case for every behavior fix (swipe/tap handling, stack and animation state, storage parsing, coin bank).
 
-**Manual testing checklist (run before any PR):**
+**Manual testing checklist (run before any PR that changes UI behavior):**
 1. Onboarding screen appears on first visit (clear localStorage to test)
 2. Swipe interactions (right/left/up) work on both touch and mouse
 3. Coin bank increments correctly and persists across page reload
@@ -11,7 +11,5 @@ No automated test framework is currently in use. This is a static site with no b
 6. "Start Fresh" resets coin bank, shown content, and returns to onboarding when pool is exhausted
 7. No console errors in Chrome and Safari
 8. Responsive layout correct on mobile (375px), tablet (768px), and desktop (1280px)
-
-**When to add automated tests:** If application logic is extracted into importable modules, add unit tests for `getSessionContent()`, `shuffleArray()`, session rotation, and coin bank calculations.
 
 ---

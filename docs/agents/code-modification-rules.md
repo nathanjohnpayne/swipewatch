@@ -10,9 +10,11 @@
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`.
 
 ### Known Behaviors (Do Not Break)
-- Cards auto-fallback to gradient if images fail to load (via `onerror` handlers)
+- Cards auto-fallback to gradient if images fail to load (via `error` event listeners attached in `createCard()`; never inline `onerror` attributes, which the CSP blocks)
+- Build DOM with `document.createElement` / `textContent` / `setAttribute` / `element.style.*`, not `innerHTML` templates with inline `style=` or `on*=` attributes — the `Content-Security-Policy` in `firebase.json` forbids inline script and inline styles
+- Site assets live in `public/` (the hosting root). Anything placed there is publicly served
 - Partial sessions show remaining items if fewer than `SESSION_SIZE` are unshown
-- `disney-dollar.jpg` exists in the project but is not referenced by any code — do not remove without confirming it is safe to delete
+- `public/disney-dollar.jpg` exists in the project but is not referenced by any code — do not remove without confirming it is safe to delete
 
 ### Content Pool Integrity
 - Do not change existing content item IDs — they are stored in `localStorage` to track shown content; changing IDs would cause users to re-see content they have already swiped
