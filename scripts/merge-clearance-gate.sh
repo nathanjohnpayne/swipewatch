@@ -80,7 +80,10 @@
 #     class exemptions, even when both review-gate knobs are disabled (#1277).
 #     Query modes retain their narrower applicability/coverage contracts.
 #
-#   Dependabot PR (author == 'dependabot[bot]'):
+#   Dependabot PR (author == 'dependabot[bot]' AND every commit on the PR is
+#   Dependabot-authored, GitHub-committed and signature-verified — see
+#   scripts/lib/dependabot-commit-provenance.sh; a Dependabot-opened PR that
+#   carries any other commit is judged as an ordinary PR below):
 #     Gated by `dependabot.reviewer_gate.enabled` (default false; true in
 #     mergepath). When enabled, BLOCKS unless a reviewer identity in
 #     `available_reviewers` (≠ PR author) has a latest-state APPROVED
@@ -178,6 +181,16 @@ fi
 # shellcheck source=lib/gh-api-array.sh
 . "$SCRIPT_DIR/lib/gh-api-array.sh"
 
+# Dependabot commit provenance: the Dependabot arm below is granted by the
+# commits the PR would merge, not by who opened it. Hard-required: without the
+# predicate the arm cannot be judged, and guessing either way is unsafe.
+if [ ! -r "$SCRIPT_DIR/lib/dependabot-commit-provenance.sh" ]; then
+  echo "ERROR: dependabot-commit-provenance helper missing: $SCRIPT_DIR/lib/dependabot-commit-provenance.sh" >&2
+  exit 2
+fi
+# shellcheck source=lib/dependabot-commit-provenance.sh
+. "$SCRIPT_DIR/lib/dependabot-commit-provenance.sh"
+
 # --- argument parsing -------------------------------------------------------
 
 # --derive-external-requiredness (#620/#630): QUERY mode. Runs the same
@@ -187,7 +200,8 @@ fi
 # gate protects this PR's CURRENT head: the external arm applies (intrinsic
 # threshold / protected paths / label force-on). `false` when no such gate
 # holds the merge until bot review: under threshold with no protected paths
-# and no label, a lane-exempt verified head, external gate disabled, OR a
+# and no label, a lane-exempt verified head/base pair, external gate disabled,
+# or a
 # Dependabot PR (its reviewer gate blocks on a reviewer-identity APPROVED,
 # not on Codex — and Codex does not review Dependabot PRs, so it is never a
 # bot-review gate; automated-4b P1). Every error keeps the die()/exit-2
@@ -199,7 +213,7 @@ fi
 #
 # --derive-phase-4-requiredness (#1094): QUERY mode for the final approval-
 # independence recheck. It shares the intrinsic threshold/protected-path,
-# force-on label, and exact-head propagation-lane exemption calculation below,
+# force-on label, and exact-pair propagation-lane exemption calculation below,
 # but deliberately ignores whether the optional external merge gate is
 # enabled. Phase 4 policy scope exists independently of that enforcement knob.
 #
@@ -795,14 +809,15 @@ EOF
   return 1
 }
 
-# Propagation-lane exemption (#429), HEAD-PINNED. Returns 0 (true) iff a PR
+# Propagation-lane exemption (#429), HEAD/BASE-PINNED. Returns 0 (true) iff a PR
 # comment authored by github-actions[bot] carries the propagation-lane marker
-# scoped to the CURRENT head SHA — i.e. `mergepath-propagation-lane
-# verified-head=<HEAD_SHA>`. .github/workflows/pr-review-policy.yml posts that
+# scoped to the CURRENT pair — i.e. `mergepath-propagation-lane:v2
+# verified-head=<HEAD_SHA> verified-base=<BASE_SHA>`.
+# .github/workflows/pr-review-policy.yml posts that
 # marker ONLY after mergepath@<sha>'s verify-propagation-pr.sh byte-confirms a
-# faithful mirror AT THAT HEAD, and a PR author cannot post as
-# github-actions[bot] — so it is a TRUSTED, head-scoped signal that the lane
-# already exempted THIS head from external review (REVIEW_POLICY.md §
+# faithful mirror AT THAT PAIR, and a PR author cannot post as
+# github-actions[bot] — so it is a TRUSTED, pair-scoped signal that the lane
+# already exempted THIS pair from external review (REVIEW_POLICY.md §
 # Propagation PR review lane).
 #
 # Why head-pinned (Codex round-3 P1 + nathanpayne-codex CHANGES_REQUESTED on
@@ -810,8 +825,9 @@ EOF
 # later divergent push. On the synchronize where this gate finishes before
 # pr-review-policy.yml re-adds needs-external-review, an unscoped check would
 # go GREEN on an unverified large/.github PR. Pinning the exemption to the
-# current head SHA closes that race independently of label timing: a diverged
-# (or merely newer-but-not-yet-verified) head has no matching marker, so the
+# current head/base pair closes that race independently of label timing: a
+# diverged, retargeted, or merely newer-not-yet-verified pair has no matching
+# marker, so the
 # gate does NOT exempt it and falls through to threshold/paths derivation.
 # A DIVERGED push never gets a marker at all (the lane's propagation_lane is
 # false → it posts nothing for that head). A faithful re-push is briefly
@@ -825,7 +841,9 @@ EOF
 # 4/Codex clearance, breaking the documented under-threshold lane.
 #
 # Marker contract is shared with pr-review-policy.yml — keep the
-# `mergepath-propagation-lane verified-head=<sha>` form in sync.
+# `mergepath-propagation-lane:v2 verified-head=<sha> verified-base=<sha>`
+# form in sync. Legacy head-only markers grant no current exemption because
+# they cannot prove which base the lane verified.
 # agent-review.yml's rc=5 branch consumes it indirectly through this
 # script's --derive-external-requiredness query (#620).
 lane_verified() {
@@ -840,12 +858,16 @@ lane_verified() {
   # closed to the caller, not fall through to threshold derivation (which
   # would return true for a large propagation PR).
   local comments rc=0
+  if ! [[ "$HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] \
+     || ! [[ "$BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    return 2
+  fi
   comments=$(gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" 2>/dev/null | jq -s 'add // []' 2>/dev/null) || return 2
   # `|| rc=$?` keeps the capture correct under `set -e` regardless of call
   # context (jq -e: 0 = match, 1 = no match, >1 = parse error).
-  echo "$comments" | jq -e --arg head "$HEAD_SHA" '
+  echo "$comments" | jq -e --arg head "$HEAD_SHA" --arg base "$BASE_SHA" '
     any(.[]; (.user.login == "github-actions[bot]")
-             and ((.body // "") | contains("mergepath-propagation-lane verified-head=" + $head)))
+             and ((.body // "") | contains("<!-- mergepath-propagation-lane:v2 verified-head=" + $head + " verified-base=" + $base + " -->")))
   ' >/dev/null 2>&1 || rc=$?
   if [ "$rc" -eq 0 ]; then return 0; fi
   if [ "$rc" -eq 1 ]; then return 1; fi
@@ -1117,8 +1139,55 @@ fi
 # APPROVED on HEAD only — Codex does not review Dependabot PRs). This
 # mirrors pr-audit.yml Check 2's precedence: a Dependabot PR that also
 # carries needs-external-review is still judged by the Dependabot rule.
-
+#
+# The narrower rule is earned by the COMMITS, not by the opener. A PR opened
+# by dependabot[bot] can carry additional commits from anyone with push
+# access, and it is still "authored by dependabot[bot]". So the arm applies
+# only when every commit on the PR, including the current HEAD, is
+# Dependabot-authored, GitHub-committed and signature-verified
+# (scripts/lib/dependabot-commit-provenance.sh). A PR that fails that
+# predicate is judged exactly like any other PR below — threshold /
+# protected-path derivation and the Phase 4 predicate — in the full gate AND
+# in the query modes. An unreadable commit list establishes nothing and fails
+# closed (exit 2) rather than choosing a lane.
+DEPENDABOT_LANE=false
 if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+  provenance_rc=0
+  dependabot_commit_provenance "$REPO" "$PR_NUMBER" "$HEAD_SHA" || provenance_rc=$?
+  case "$provenance_rc" in
+    0)
+      DEPENDABOT_LANE=true
+      log "Dependabot provenance: $DEPENDABOT_PROVENANCE_REASON"
+      ;;
+    1)
+      log "Dependabot provenance: NOT Dependabot-only — $DEPENDABOT_PROVENANCE_REASON. Judging this PR as an ordinary PR (external-review / Phase 4 derivation), not by the Dependabot rule."
+      # A native auto-merge request armed while the head was Dependabot-only
+      # survives a push by a write collaborator, and the workflow job that
+      # withdraws it is neither required nor ordered before this gate. While
+      # that request stands, ordinary clearance (e.g. under threshold) could
+      # release the merge before the withdrawal lands, so the full gate
+      # blocks until the request is gone. The query modes answer
+      # applicability only and keep the ordinary derivation.
+      if [ "$DERIVE_ONLY" != "true" ] && [ "$PHASE_4_DERIVE_ONLY" != "true" ] && [ "$RATE_LIMIT_PROTECTION_ONLY" != "true" ]; then
+        DEP_AUTO_MERGE=$(printf '%s' "$PR_JSON" | jq -r 'if has("auto_merge") then (if .auto_merge == null then "none" else "armed" end) else "unknown" end')
+        case "$DEP_AUTO_MERGE" in
+          none) ;;
+          armed)
+            block "Dependabot-opened PR is no longer Dependabot-only ($DEPENDABOT_PROVENANCE_REASON) and still carries a native auto-merge request armed for an earlier head. Withdraw the auto-merge request (the Dependabot auto-merge workflow does this on its next run); the PR is then judged as an ordinary PR."
+            ;;
+          *)
+            die 2 "could not read the auto-merge state of Dependabot-opened PR #$PR_NUMBER that failed commit provenance"
+            ;;
+        esac
+      fi
+      ;;
+    *)
+      die 2 "could not verify Dependabot commit provenance on HEAD $HEAD_SHA: $DEPENDABOT_PROVENANCE_REASON"
+      ;;
+  esac
+fi
+
+if [ "$DEPENDABOT_LANE" = "true" ]; then
   if [ "$DERIVE_ONLY" = "true" ] || [ "$PHASE_4_DERIVE_ONLY" = "true" ] || [ "$RATE_LIMIT_PROTECTION_ONLY" = "true" ]; then
     # Query mode always returns FALSE for a Dependabot PR (automated-4b P1).
     # The query consumers ask a NARROW question: will this PR be protected
@@ -1220,15 +1289,15 @@ if [ "$EXTERNAL_GATE_ENABLED" = "true" ] || [ "$PHASE_4_DERIVE_ONLY" = "true" ] 
     # Label present forces the arm on (a human may add it to a small PR;
     # or the propagation lane RE-ADDED it after a divergence). Not subject
     # to the propagation exemption below — a present label means the lane's
-    # latest per-HEAD verdict is "needs review."
+    # latest per-pair verdict is "needs review."
     REQUIRES_EXTERNAL=true
     REQUIRES_REASON="needs-external-review label present"
   elif lane_verified; then
     # Verified propagation PR: a trusted github-actions[bot] lane marker
-    # scoped to THIS head SHA is present (label absent). The lane already
-    # byte-verified this exact head and exempted it from external review;
+    # scoped to THIS head/base pair is present (label absent). The lane already
+    # byte-verified this exact pair and exempted it from external review;
     # defer to it and do NOT re-derive from threshold/paths (#429).
-    log "verified propagation lane (trusted head-pinned marker for $HEAD_SHA, label absent) — exempt from external-review derivation; deferring to pr-review-policy.yml lane"
+    log "verified propagation lane (trusted pair marker for $HEAD_SHA/$BASE_SHA, label absent) — exempt from external-review derivation; deferring to pr-review-policy.yml lane"
   else
     lane_rc=$?
     # Indeterminate marker read (rc 2): in the FULL gate, falling through to
