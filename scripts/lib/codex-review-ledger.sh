@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # scripts/lib/codex-review-ledger.sh
 #
-# Report-only Codex review ledger (#1560, slice 2). Reconstructs, from records
-# GitHub already holds, which Codex responses a PR's Codex requests drew, and
+# Codex review ledger (#1560, slice 2). Reconstructs, from records GitHub
+# already holds, which Codex responses a PR's Codex requests drew, and
 # reports every case whose attribution the record cannot prove as ambiguous
-# instead of guessing. It decides nothing: no requester, barrier or
-# merge-gate path reads it. Its job is to produce the evidence the counting
-# and routing decision on #1560 is made from. The contract, including every
+# instead of guessing. Its one decision input is the per-PR count of
+# solicited blocking responses, which the requester's blocking-review budget
+# reads (slice 3); that count does not depend on attribution, and nothing
+# reads the attribution to decide anything. The contract, including every
 # rule below, is specs/codex_review_ledger.md.
 #
 # What the record does not prove, and how the ledger treats it:
@@ -41,8 +42,9 @@
 #     requests:  [{id, created_at, counted: true|false, source, author,
 #                  eyes_at: iso|null}],
 #     reviews:   [{id, submitted_at, commit_id|null, body_tiers: [...],
-#                  root_findings: [{comment_id, tier}], reply_comments: N,
+#                  root_findings: [{comment_id, tier, path}], reply_comments: N,
 #                  reply_markers: [...]}],
+#     rebuttals: [{finding, path, at, sources: [...]}],  # optional (slice 3)
 #     verdicts:  [{comment_id, created_at, reviewed_shas: [...], affirmative}],
 #     reactions: [{id, created_at}],             # bot +1 on the PR issue
 #     blocks:    [{comment_id, created_at, reason}],
@@ -79,7 +81,13 @@ crl_ledger() {
               anchor: .commit_id,
               grade: (if ($tiers | any(. as $x | blocking_tier($x))) then "blocking"
                       elif ($tiers | length) > 0 then "discretionary"
-                      else "no_findings" end) } ]
+                      else "no_findings" end),
+              # Where the blocking findings sit, for the disagreement check:
+              # inline findings carry a path; body findings and inline findings
+              # without one cannot be located.
+              blocking_paths: ([ .root_findings[] | select(blocking_tier(.tier)) | .path | select(type == "string") ] | unique),
+              blocking_unlocated: ((.body_tiers | any(. as $x | blocking_tier($x)))
+                                   or any(.root_findings[]; blocking_tier(.tier) and ((.path | type) != "string"))) } ]
         + [ $in.verdicts[]
             | (.reviewed_shas | consistent_anchor) as $anchor
             | { sid: ("verdict:" + (.comment_id | tostring)), kind: "verdict", t: .created_at,
@@ -145,6 +153,9 @@ crl_ledger() {
               window: $w, unsolicited: ($w == 0),
               anchor: $grp.anchor,
               first_at: ([$grp.sigs[].t] | min),
+              blocking_paths: ([ $grp.sigs[] | select(.kind == "review") | .blocking_paths[] ] | unique),
+              blocking_unlocated: ($c.class == "unknown_tier" or $c.conflicting
+                                   or any($grp.sigs[]; .kind == "review" and .blocking_unlocated)),
               signals: [$grp.sigs[].sid],
               class: $c.class, conflicting: $c.conflicting,
               mixed_heads: ($heads > 1),
@@ -155,22 +166,28 @@ crl_ledger() {
               provider_blocked: ([$grp.sigs[] | select(.kind == "block") | .reason] | unique) } ] ) as $responses
 
     # ---- attribution sweep -----------------------------------------------------
-    # unresolved: requests not yet attributed; debt: how many of them may still
-    # be owed a response. A response is attributed only when it is the window''s
-    # only response, its own request is the only unresolved one, nothing earlier
-    # is still owed, it is not a same-second tie, and nothing makes it a
-    # plausible second answer to an earlier request (same head anchor as an
-    # earlier attributed response, or no anchor at all after the first window).
+    # unresolved: requests that may still be owed a response. A response is
+    # attributed only when it is the window''s only response, its own request
+    # is the only unresolved one, it is not a same-second tie, and nothing makes
+    # it a plausible second answer to an earlier request (an earlier request
+    # holding a response on the same head, or an anchorless response after the
+    # first window). Responses never name the request they answer, so an
+    # ambiguous window settles its requests only when that coverage is proven:
+    # its own request is the only candidate (#1572). Otherwise every candidate
+    # stays unresolved, because several responses can all answer one request.
+    # anchors: every head a request may have been answered on, recorded for
+    # each candidate of an ambiguous window too (#1573).
     | ( reduce range(1; $n + 1) as $k
-          ( {unresolved: [], debt: 0, att: {}, amb: {}, second: {}, anchors: {}};
-            .unresolved += [$k] | .debt += 1
+          ( {unresolved: [], att: {}, amb: {}, second: {}, anchors: {}};
+            .unresolved += [$k]
             | [ $responses[] | select(.window == $k) ] as $rs
             | if ($rs | length) == 0 then .
               else
                 . as $st
+                | ( [ $rs[] | .anchor | select(. != null) ] ) as $ranchors
                 | ( [ $rs[] | .anchor as $a
                       | if $a == null then (if $k > 1 then [$k - 1] else [] end)
-                        else [ $st.anchors | to_entries[] | select(.value != null and same_head(.value; $a))
+                        else [ $st.anchors | to_entries[] | select(any(.value[]; same_head(.; $a)))
                                | .key | tonumber ] end ]
                     | add | unique | map(select(. < $k)) ) as $extra
                 # A response in the same second as a request may precede every
@@ -180,13 +197,12 @@ crl_ledger() {
                       | ( [ $reqs[] | select(.created_at == $tt and .k != $k) | .k ]
                           + ([ $reqs[] | select(.created_at < $tt) | .k ] | if length > 0 then [max] else [] end) ) ]
                     | add // [] | unique ) as $tieprev
-                | ( ($rs | length) == 1 and $st.unresolved == [$k] and $st.debt == 1
-                    and ($tieprev | length) == 0 and (any($rs[]; .tie) | not)
-                    and ($extra | length) == 0 ) as $clean
-                | if $clean then
+                | ( $st.unresolved == [$k] and ($tieprev | length) == 0
+                    and (any($rs[]; .tie) | not) and ($extra | length) == 0 ) as $covered
+                | if $covered and ($rs | length) == 1 then
                     .att[($k | tostring)] = [$rs[0].rid]
-                    | .anchors[($k | tostring)] = $rs[0].anchor
-                    | .unresolved = [] | .debt = 0
+                    | .anchors[($k | tostring)] = $ranchors
+                    | .unresolved = []
                   else
                     ( [ $tieprev, $st.unresolved, $extra ] | add | unique ) as $cand
                     | ( [ (if ($rs | length) > 1 then "several responses in one window" else empty end),
@@ -205,11 +221,10 @@ crl_ledger() {
                     # have received this response (second/late answer or tie).
                     | reduce ([ $extra[], $tieprev[] ] | unique | map(select(. as $x | $st.unresolved | index($x) | not)))[] as $x
                         (.; .second[($x | tostring)] = ((.second[($x | tostring)] // []) + [$rs[].rid] | unique))
-                    # An earlier request may have taken the response, so it
-                    # pays the debt only when no earlier request competes.
-                    | .debt = (if ($extra | length) > 0 or ($tieprev | length) > 0 then $st.debt
-                               else ([$st.debt - ($rs | length), 0] | max) end)
-                    | if .debt == 0 then .unresolved = [] else . end
+                    # Any candidate may have been answered on these heads.
+                    | reduce $cand[] as $c (.;
+                        .anchors[($c | tostring)] = ((.anchors[($c | tostring)] // []) + $ranchors | unique))
+                    | if $covered then .unresolved = [] else . end
                   end
               end ) ) as $sweep
 
@@ -244,19 +259,21 @@ crl_ledger() {
       requests: $requests,
       responses: $responses,
       thread_reply_reviews: [ $wrappers[] | {id, submitted_at, commit_id, reply_markers} ],
+      rebuttals: ($in.rebuttals // [] | sort_by(.at, (.finding | tostring))),
       current_summary: $in.summary,
       limits: [
         "a request comment names no commit; request heads are never inferred",
         "eyes are current state: Codex removes them when a review finishes",
         "the pull-request thumbs-up keeps only its latest creation; earlier reaction-only clean passes leave no record",
-        "the Review Summary is edited in place; only its current state is visible"
+        "the Review Summary is edited in place; only its current state is visible",
+        "request comments are read as they stand now; an edited or deleted request changes the reconstructed windows"
       ],
       summary: {
         requests: ([ $requests[] | select(.counted) ] | length),
         foreign_requests: ([ $requests[] | select(.counted | not) ] | length),
         outcomes: outcomes([ $requests[] | select(.counted) ]),
         foreign_outcomes: outcomes([ $requests[] | select(.counted | not) ]),
-        open_debt: $sweep.debt,
+        open_debt: ([ $sweep.unresolved[] | select($sweep.amb[(. | tostring)] != null) ] | length),
         eyes_now: ([ $requests[] | select(.eyes_at != null) ] | length),
         reposted_without_response: ([ $requests[] | select(.counted and .reposted_without_response) ] | length),
         reposted_after_eyes: ([ $requests[] | select(.counted and .eyes_before_repost == true) ] | length),
@@ -275,4 +292,100 @@ crl_ledger() {
       }
     }
   '
+}
+
+# The blocking-review budget's counting rule (#1560 slice 3), shared by the
+# requester and the Phase 4b barrier. A response counts when it came after at
+# least one request and is classed blocking or unknown_tier, or is
+# conflicting: unknown and conflicting evidence counts against the budget,
+# never for it.
+__CRL_COUNTS='(.unsolicited | not) and (.class == "blocking" or .class == "unknown_tier" or .conflicting)'
+# A ledger is usable for a decision only when every response carries the
+# fields the rule reads, and every rebuttal the fields the stop check reads.
+# A class outside the known set (version skew, malformed output) is refused,
+# never read as non-blocking.
+__CRL_VALID='type == "object" and (.responses | type) == "array"
+  and all(.responses[]; (.unsolicited | type) == "boolean" and (.conflicting | type) == "boolean"
+                        and (.class as $c | ["blocking", "discretionary", "no_findings", "clean",
+                                             "unknown_tier", "provider_blocked"] | index($c)) != null)'
+
+# crl_blocking_count <ledger-json> <head> <author>
+# Prints the count. Returns nonzero when the ledger is malformed or names
+# another head or author.
+crl_blocking_count() {
+  printf '%s\n' "$1" | jq -ser --arg head "$2" --arg author "$3" "
+    if length != 1 then error(\"documents\") else .[0] end
+    | if ($__CRL_VALID) and .head_sha == \$head and .author == \$author
+    then [ .responses[] | select($__CRL_COUNTS) ] | length
+    else error(\"ledger\") end" 2>/dev/null
+}
+
+# crl_human_stops <ledger-json> <head> <author> <max-blocking-reviews>
+#
+# The human-stop conditions the Phase 4b barrier re-evaluates before it lets a
+# spent request ceiling dispatch the automated adapter (#1560 slice 3, S3-4):
+#   blocking-budget    the counted responses reach the budget;
+#   untested-rebuttal  a rebutted Codex finding has no Codex response after
+#                      its rebuttal, so Codex never re-read the dispute;
+#   disagreement       a response after a rebuttal re-flags blocking feedback
+#                      on the rebutted finding's path, or blocking feedback
+#                      it cannot locate (a body finding, an unknown tier, a
+#                      conflicting response), which cannot be ruled out as a
+#                      repeat of the rebutted finding.
+# Prints {blocking_reviews, max_blocking_reviews, stops: [...],
+# untested_rebuttals: [...], disagreements: [...]}. Returns nonzero unless the
+# input is exactly one well-formed ledger for this head and author, read under
+# a policy snapshot with the same max_blocking_reviews.
+crl_human_stops() {
+  printf '%s\n' "$1" | jq -sec --arg head "$2" --arg author "$3" --argjson max "$4" "
+    if length != 1 then error(\"documents\") else .[0] end
+    | if (($__CRL_VALID) and .head_sha == \$head and .author == \$author
+        and .max_blocking_reviews == \$max
+        and (.rebuttals | type) == \"array\"
+        and (.requests | type) == \"array\"
+        and all(.requests[]; (.created_at | type) == \"string\" and (.outcome | type) == \"string\"
+                             and (.responses | type) == \"array\")
+        and all(.responses[]; (.first_at | type) == \"string\" and (.window | type) == \"number\"
+                              and (.blocking_paths | type) == \"array\"
+                              and (.blocking_unlocated | type) == \"boolean\")
+        and all(.rebuttals[]; (.at | type) == \"string\" and (.finding | type) == \"number\"
+                              and ((.path | type) == \"string\" or .path == null))) | not
+    then error(\"ledger\") else . end
+    | .responses as \$rs
+    | .requests as \$reqs
+    | ([ \$rs[] | select($__CRL_COUNTS) ] | length) as \$n
+    | [ .rebuttals[] | . as \$r
+        # Only a response to a request posted AFTER the rebuttal can have read
+        # it: a request already in flight may be answered later without
+        # seeing it (#1579). Windows are numbered by request in time order, so
+        # those are the windows from the first later request on. A
+        # provider-block notice is not Codex re-reading the dispute.
+        | ([ \$reqs | to_entries[] | select(.value.created_at > \$r.at) | .key + 1 ] | min) as \$k0
+        | [ \$rs[] | select(\$k0 != null and .window >= \$k0 and .first_at > \$r.at
+                            and .class != \"provider_blocked\") ] as \$after
+        # Tested needs PROOF: a response the ledger attributes to a request
+        # posted after the rebuttal. A later-window response whose attribution
+        # is ambiguous may be a late answer to an earlier request, so it does
+        # not clear the stop (fail closed on ambiguity). Disagreement keeps the
+        # broader window set, where counting more responses is the safe side.
+        | ([ \$reqs[] | select(.created_at > \$r.at and .outcome == \"attributed\") | .responses[] ]) as \$proven
+        | [ \$after[] | select(.rid as \$id | \$proven | index(\$id)) ] as \$tested
+        | if (\$tested | length) == 0 and ([ \$after[] | select(($__CRL_COUNTS)
+                                     and (.blocking_unlocated or \$r.path == null
+                                          or (.blocking_paths | index(\$r.path)) != null)) ] | length) == 0
+          then {kind: \"untested\", finding: \$r.finding, path: \$r.path, at: \$r.at}
+          else ( [ \$after[] | select(($__CRL_COUNTS)
+                                     and (.blocking_unlocated or \$r.path == null
+                                          or (.blocking_paths | index(\$r.path)) != null)) ] ) as \$again
+               | if (\$again | length) > 0
+                 then {kind: \"disagreement\", finding: \$r.finding, path: \$r.path, at: \$r.at,
+                       responses: [ \$again[].rid ]}
+                 else empty end
+          end ] as \$disputes
+    | { blocking_reviews: \$n, max_blocking_reviews: \$max,
+        untested_rebuttals: [ \$disputes[] | select(.kind == \"untested\") | del(.kind) ],
+        disagreements: [ \$disputes[] | select(.kind == \"disagreement\") | del(.kind) ] }
+    | .stops = ( [ (if \$n >= \$max then \"blocking-budget\" else empty end),
+                   (if (.disagreements | length) > 0 then \"disagreement\" else empty end),
+                   (if (.untested_rebuttals | length) > 0 then \"untested-rebuttal\" else empty end) ] )" 2>/dev/null
 }
