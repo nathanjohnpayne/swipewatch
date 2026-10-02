@@ -138,3 +138,74 @@ crqe_ack_present() { # reactions-json bot trigger-time; caller binds comment ID
      | select(.created_at >= $after)] | length > 0
   '
 }
+
+# Select the newest marker-tagged Codex Review Summary whose Code Review row
+# names the given head, as `{status, commit, observed_at, trigger, comment_id}`
+# or `null` (#1157).
+#
+# Codex creates this issue comment when a review starts and edits it in place
+# as the review advances, so `updated_at` — not `created_at` — is the signal
+# time. The row is exact-head evidence because its Commit cell carries a
+# 7-to-40-character hexadecimal prefix. Status remains explicit: `running`
+# proves liveness only, while `completed` can prove terminal delivery to a
+# diagnostic caller. Neither status is an affirmative merge verdict. The row
+# names no trigger comment, so it can show that a review of a head is in
+# flight but never which request started it.
+#
+# Pure: jq over the passed strings only, no globals and no I/O. Shared by
+# codex-review-check.sh (gate diagnostics) and codex-review-request.sh (#1550
+# resume check).
+crqe_select_codex_review_summary() { # issue-comments-json bot-login head-sha
+  echo "${1:-[]}" | jq -c \
+    --arg bot "${2:-}" --arg sha "${3:-}" '
+    ($sha | ascii_downcase) as $head
+    | [ .[]
+      | select((.user.login // "") == $bot)
+      | select((.body // "") | startswith("<!-- codex-pull-request-review-summary -->"))
+      | . as $comment
+      | ((.body // "")
+          | capture("(?m)^\\|[[:space:]]*📝[[:space:]]*\\*\\*Code Review\\*\\*[[:space:]]*\\|[[:space:]]*(?<status>[^|]+)[[:space:]]*\\|[[:space:]]*`(?<commit>[0-9A-Fa-f]{7,40})`[[:space:]]*\\|[[:space:]]*(?<trigger>[^|]+)[[:space:]]*\\|[[:space:]]*$")?
+          // null) as $row
+      | select($row != null)
+      | ($row.commit | ascii_downcase) as $commit
+      | select($head | startswith($commit))
+      | { status:
+            (if ($row.status | test("\\*\\*Completed\\*\\*"; "i")) then "completed"
+             elif ($row.status | test("\\*\\*Running\\*\\*"; "i")) then "running"
+             else "unknown" end),
+          commit: $commit,
+          observed_at: ($comment.updated_at // $comment.created_at // ""),
+          trigger: ($row.trigger | gsub("^[[:space:]]+|[[:space:]]+$"; "")),
+          comment_id: ($comment.id // 0) }
+    ]
+    | max_by([.observed_at, .comment_id]) // null
+  '
+}
+
+# Parse every Codex-bot issue comment that is a verdict into
+# {comment_id, created_at, reviewed_shas, affirmative}, oldest first. A
+# verdict is a comment carrying a "Reviewed commit: <sha>" anchor or headed
+# "Codex Review:" (an older format carries no sha; reviewed_shas is then []).
+# The anchor scan and the affirmative test are the exact expressions
+# codex-review-request.sh (scan_codex_state) and codex-review-check.sh
+# (CODEX_VERDICT_JSON) use; tests/test_codex_review_ledger.sh pins all three
+# copies byte-for-byte. Selection differs by design: those two keep only
+# verdicts whose sha prefixes the current head and take the latest, while
+# this reports every verdict and leaves selection to the caller.
+crqe_verdicts() { # issue-comments-json bot-login
+  printf '%s\n' "${1:-[]}" | jq -c --arg bot "${2:-}" '
+    [ .[]
+      | select((.user.login // "") == $bot)
+      | . as $c
+      | ( [ $c.body // ""
+            | ascii_downcase
+            | scan("reviewed commit[^0-9a-f]{0,6}([0-9a-f]{7,40})")
+            | .[0]
+          ] ) as $shas
+      | select(($shas | length) > 0 or (($c.body // "") | test("(?im)^\\s*codex review:")))
+      | { comment_id: .id, created_at: .created_at, reviewed_shas: $shas,
+          affirmative: ((.body // "") | test("(?im)^\\s*codex review:\\s*didn.?t find any major issues\\b")) }
+    ]
+    | sort_by(.created_at, .comment_id)
+  '
+}
