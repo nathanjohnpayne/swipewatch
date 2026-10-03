@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/codex-review-ledger.sh — report-only Codex review ledger for one PR
+# scripts/codex-review-ledger.sh — Codex review ledger for one PR
 # (#1560, slice 2).
 #
 # Reads the PR's configured-author Codex requests and every Codex response
@@ -8,15 +8,21 @@
 # --summary). The attribution and classification rules are documented in
 # scripts/lib/codex-review-ledger.sh.
 #
-# REPORT ONLY. Nothing reads this ledger to decide anything: it posts nothing,
-# changes no label, and no requester, barrier or merge-gate path consults it.
-# It exists to produce the evidence the counting and routing decision on
-# #1560 is made from.
+# Read only: it posts nothing and changes no label. Two consumers read it
+# (#1560 slice 3): scripts/codex-review-request.sh counts the PR's solicited
+# blocking responses for the blocking-review budget, which needs no
+# attribution; the Phase 4b barrier's human stops use attribution to decide
+# whether a rebuttal was tested (crl_human_stops).
 #
 # Usage:
-#   scripts/codex-review-ledger.sh [--repo owner/name] [--summary] <PR_NUMBER>
+#   scripts/codex-review-ledger.sh [--repo owner/name] [--summary]
+#                                  [--expect-head <sha>] [--expect-policy <fp>]
+#                                  <PR_NUMBER>
 #
-#   --summary        Print a short human-readable report instead of JSON.
+#   --summary            Print a short human-readable report instead of JSON.
+#   --expect-head <sha>  Exit 3 unless the PR head is exactly <sha>.
+#   --expect-policy <fp> Exit 3 unless the governing policy snapshot this run
+#                        reads has fingerprint <fp> (crqe_policy_fingerprint).
 #
 # The configured author, bot login and required feedback tiers come from the
 # PR's governing base policy (scripts/workflow/resolve_base_policy.sh), the
@@ -49,15 +55,19 @@ for __lib in gh-api-array.sh codex-request-evidence.sh codex-failure-markers.sh 
 done
 
 die() { echo "[codex-review-ledger] ERROR: $*" >&2; exit 3; }
-usage() { sed -n '16,19p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '16,24p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 REPO=""
 SUMMARY=false
+EXPECT_HEAD=""
+EXPECT_POLICY=""
 PR_NUMBER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) [ $# -ge 2 ] || usage; REPO=$2; shift 2 ;;
     --summary) SUMMARY=true; shift ;;
+    --expect-head) [ $# -ge 2 ] && [[ "$2" =~ ^[0-9a-f]{40}$ ]] || usage; EXPECT_HEAD=$2; shift 2 ;;
+    --expect-policy) [ $# -ge 2 ] && [[ "$2" =~ ^[0-9]+-[0-9]+$ ]] || usage; EXPECT_POLICY=$2; shift 2 ;;
     -h|--help) usage ;;
     -*) usage ;;
     *) [ -z "$PR_NUMBER" ] || usage; PR_NUMBER=$1; shift ;;
@@ -83,6 +93,8 @@ jqx() { # <what> <jq-args...>
 # ---- governing policy --------------------------------------------------------
 PR_JSON=$(gh api "repos/$REPO/pulls/$PR_NUMBER" 2>/dev/null) || die "cannot read PR #$PR_NUMBER"
 HEAD_SHA=$(printf '%s' "$PR_JSON" | jq -er '.head.sha') || die "PR #$PR_NUMBER has no head sha"
+[ -z "$EXPECT_HEAD" ] || [ "$HEAD_SHA" = "$EXPECT_HEAD" ] \
+  || die "PR #$PR_NUMBER head is $HEAD_SHA, not the expected $EXPECT_HEAD"
 
 RESOLVER="$__LEDGER_DIR/workflow/resolve_base_policy.sh"
 [ -x "$RESOLVER" ] || die "governing-policy resolver missing: $RESOLVER"
@@ -101,6 +113,12 @@ cleanup() {
 trap cleanup EXIT
 
 POLICY_JSON=$(policy_yaml_to_json "$POLICY_FILE" 2>/dev/null) || die "governing base policy does not parse"
+# One snapshot for every policy-derived input (author, bot, tiers, budget): a
+# caller that read its own snapshot passes its fingerprint, and a base that
+# moved between the two reads is refused rather than mixed.
+POLICY_FP=$(crqe_policy_fingerprint "$POLICY_JSON") || die "cannot fingerprint the governing base policy"
+[ -z "$EXPECT_POLICY" ] || [ "$POLICY_FP" = "$EXPECT_POLICY" ] \
+  || die "the governing base policy changed between the caller's read and this one ($EXPECT_POLICY, now $POLICY_FP)"
 # Same rules as crqe_governing_budget: the policy must be an object, and an
 # absent author_identity defaults to the shared author.
 AUTHOR=$(printf '%s' "$POLICY_JSON" | jq -er '
@@ -109,7 +127,13 @@ AUTHOR=$(printf '%s' "$POLICY_JSON" | jq -er '
     (if (.author_identity | type) == "string" and (.author_identity | length) > 0
      then .author_identity else error("author_identity") end)
   else "nathanjohnpayne" end') || die "governing policy or its author_identity is malformed"
-BOT=$(printf '%s' "$POLICY_JSON" | jq -r '.codex.bot_login // ""') || die "governing codex.bot_login is malformed"
+# A non-string bot login would be coerced to text that matches no Codex
+# activity, and an empty ledger would read as zero blocking reviews.
+BOT=$(printf '%s' "$POLICY_JSON" | jq -er '
+  (if .codex == null then {} else .codex end) | if type != "object" then error("codex")
+  elif (.bot_login == null) then ""
+  elif (.bot_login | type) == "string" then .bot_login
+  else error("bot_login") end') || die "governing codex.bot_login is malformed (must be a string)"
 BOT=${BOT:-chatgpt-codex-connector[bot]}
 # resolve_required_tiers returns 2 for a malformed block; any other status is
 # its normal result (its last statement is a conditional echo).
@@ -122,6 +146,21 @@ REQUIRED_TIERS=$(resolve_required_tiers "$POLICY_FILE") || tiers_rc=$?
 # disagree, rather than add a second tier reader the requester and gate
 # would not share.
 READER_TIERS=$(printf '%s\n' "$REQUIRED_TIERS" | jq -Rsc 'split("\n") | map(select(length > 0)) | sort')
+# Validate what the parsed policy says before comparing: the shared reader
+# ignores values it cannot place, so an invalid mode or priority would
+# otherwise read as "nothing required" on both sides and pass (#1574). The
+# accepted values are exactly the ones resolve_required_tiers accepts, including
+# an empty value (`p1:`), which both read as unset.
+printf '%s' "$POLICY_JSON" | jq -e '
+  if (has("feedback_policy") | not) then true
+  elif (.feedback_policy | type) != "object" then false
+  else .feedback_policy as $fp
+    | (($fp.mode == null) or ($fp.mode == "by-priority") or ($fp.mode == "address-all"))
+      and (($fp.priorities == null) or (($fp.priorities | type) == "object"
+           and ($fp.priorities | to_entries
+                | all(.value == null or .value == "required" or .value == "discretionary" or .value == "ignore"))))
+  end' >/dev/null 2>&1 \
+  || die "governing feedback_policy has an invalid mode or priority value (accepted: mode by-priority|address-all; priorities required|discretionary|ignore)"
 PARSED_TIERS=$(printf '%s' "$POLICY_JSON" | jq -c '
   ["p0","p1","p2","p3","nitpick"] as $all
   | if (has("feedback_policy") | not) then ["p1"]
@@ -198,6 +237,10 @@ REQUESTS=$(jqx "requests" -c --slurpfile f "$LEDGER_TMP/foreign.json" --argjson 
 
 # ---- Codex reviews -------------------------------------------------------------
 BOT_REVIEWS=$(jqx "reviews" -c --arg bot "$BOT" '[.[] | select(.user.login == $bot)] | unique_by(.id)' <<<"$REVIEWS")
+# A Codex review with no submission time cannot be placed in a window; read as
+# window 0 it would count as unsolicited and drop out of the blocking budget.
+jq -e 'all(.[]; (.submitted_at | type) == "string" and (.submitted_at | length) > 0)' <<<"$BOT_REVIEWS" >/dev/null 2>&1 \
+  || die "malformed evidence: a Codex review has no submitted_at"
 BOT_REVIEW_COMMENTS=$(jqx "review comments" -c --arg bot "$BOT" \
   '[.[] | select(.user.login == $bot)] | unique_by(.id)' <<<"$REVIEW_COMMENTS")
 LEDGER_REVIEWS='[]'
@@ -210,8 +253,8 @@ while IFS= read -r review; do
   while IFS= read -r c; do
     [ -n "$c" ] || continue
     tier=$(codex_tier_of "$(jqx "review comment" -r '.body // ""' <<<"$c")")
-    roots=$(jqx "review comment" -c --argjson id "$(jqx "review comment" '.id' <<<"$c")" \
-      --arg tier "${tier:-unmarked}" '. + [{comment_id: $id, tier: $tier}]' <<<"$roots")
+    roots=$(jqx "review comment" -c --argjson c "$c" \
+      --arg tier "${tier:-unmarked}" '. + [{comment_id: $c.id, tier: $tier, path: ($c.path // null)}]' <<<"$roots")
   done <<<"$(jqx "review $rid comments" -c --argjson rid "$rid" \
                '.[] | select(.pull_request_review_id == $rid and .in_reply_to_id == null)' <<<"$BOT_REVIEW_COMMENTS")"
   replies=$(jqx "review $rid replies" -c --argjson rid "$rid" \
@@ -229,6 +272,74 @@ while IFS= read -r review; do
            body_tiers: $bt, root_findings: $roots, reply_comments: $nreplies,
            reply_markers: $markers}]' <<<"$LEDGER_REVIEWS")
 done <<<"$(jqx "reviews" -c '.[]' <<<"$BOT_REVIEWS")"
+
+# ---- rebuttals (#1560 slice 3) ---------------------------------------------------
+# A Codex inline finding is rebutted when its thread carries a
+# `[mergepath-resolve: rebuttal-recorded]` reply, or its root carries a thumbs-
+# down from anyone but the bot (codex-record-feedback.sh's rebutted verdict).
+# The rebuttal's time is the LATEST of its proven evidence: the tag replies
+# (each at the later of its creation and last edit)
+# and the non-bot thumbs-downs. Other replies in the thread are not used: an
+# earlier question or fix note would date the rebuttal too early, and a Codex
+# response in between would then read as having tested it. Dating late errs
+# toward "untested", which stops for the human. A thumbs-down is read only for roots whose
+# reaction rollup does not rule one out. Review-body findings are handled
+# below, from their review-ack acknowledgements.
+REBUTTALS='[]'
+while IFS= read -r root; do
+  [ -n "$root" ] || continue
+  rid=$(jqx "rebuttal root" -r '.id' <<<"$root")
+  times=$(jqx "thread $rid replies" -c --argjson rid "$rid" --arg bot "$BOT" '
+    [ .[] | select(.in_reply_to_id == $rid and (.user.login // "") != $bot) ] as $replies
+    | [ $replies[] | select((.body // "") | test("\\[mergepath-resolve:\\s*rebuttal-recorded\\]"))
+        # An existing reply edited to carry the tag dates from the edit: its
+        # creation time could predate a Codex review that never saw the tag.
+        | ([.created_at, .updated_at] | map(select(type == "string")) | max) ]' <<<"$REVIEW_COMMENTS")
+  sources=$(jqx "thread $rid" -c 'if length > 0 then ["tag"] else [] end' <<<"$times")
+  # Assigned in a plain statement, not inside the test: a failure inside a
+  # command substitution used as an `if` operand escapes set -e, and a
+  # malformed rollup would then read as "no thumbs-down" (#1582).
+  rollup_says_down=$(jqx "root $rid reactions rollup" -r '
+    # Default only an ABSENT rollup: `// {}` would also turn a present false
+    # or null into {} and skip the fail-closed path (#1584).
+    (if has("reactions") then .reactions else {} end)
+    | if type != "object" then error("reactions") else (.["-1"] // 1) > 0 end' <<<"$root")
+  if [ "$rollup_says_down" = true ]; then
+    down=$(read_array "repos/$REPO/pulls/comments/$rid/reactions" "finding $rid reactions")
+    down=$(jqx "finding $rid reactions" -c --arg bot "$BOT" \
+      '[ .[] | select(.content == "-1" and (.user.login // "") != $bot) | .created_at ]' <<<"$down")
+    if [ "$(jqx "finding $rid reactions" 'length' <<<"$down")" -gt 0 ]; then
+      times=$(jqx "finding $rid" -c --argjson d "$down" '. + $d' <<<"$times")
+      sources=$(jqx "finding $rid" -c '. + ["thumbs-down"]' <<<"$sources")
+    fi
+  fi
+  if [ "$(jqx "finding $rid" 'length' <<<"$times")" -gt 0 ]; then
+    REBUTTALS=$(jqx "rebuttals" -c --argjson r "$root" --argjson t "$times" --argjson s "$sources" \
+      '. + [{finding: $r.id, path: ($r.path // null), at: ($t | max), sources: $s}]' <<<"$REBUTTALS")
+  fi
+done <<<"$(jqx "review comments" -c '.[] | select(.in_reply_to_id == null)' <<<"$BOT_REVIEW_COMMENTS")"
+
+# Review-body findings have no thread, so their disposition is an issue-comment
+# acknowledgement, `[mergepath-review-ack: <review-id> <fingerprint>]`
+# (review-feedback-accounting.sh). The ack does not say whether the finding was
+# fixed or rebutted, so an ack of a Codex review with a BLOCKING body finding is
+# read as a rebuttal of that review (path null, dated by the ack's later of
+# creation and edit). Over-reading errs toward a human stop, never toward a
+# waiver (#1560 canary: body rebuttals never reached the ledger).
+printf '%s\n' "$LEDGER_REVIEWS" >"$LEDGER_TMP/ack_reviews.json"
+BODY_REBUTTALS=$(jqx "review acks" -c --slurpfile rv "$LEDGER_TMP/ack_reviews.json" --arg bot "$BOT" \
+  --argjson required "$REQUIRED_JSON" '
+  def blocking_tier($t): $t == "p0" or ($required | index($t)) != null;
+  ([ $rv[0][] | select(any(.body_tiers[]; blocking_tier(.))) | .id ]) as $blocking
+  | [ .[] | select((.user.login // "") != $bot and ((.user.type // "") != "Bot"))
+      | . as $c
+      | ((.body // "") | [ scan("\\[mergepath-review-ack:\\s*([0-9]+)\\s+[0-9a-f]+\\]") | .[0] | tonumber ]) as $ids
+      | $ids[] | select(. as $i | $blocking | index($i))
+      | {finding: ., path: null,
+         at: ([$c.created_at, $c.updated_at] | map(select(type == "string")) | max),
+         sources: ["review-ack"]} ]
+  | group_by(.finding) | map({finding: .[0].finding, path: null, at: (map(.at) | max), sources: ["review-ack"]})' <<<"$ISSUE_COMMENTS")
+REBUTTALS=$(jqx "rebuttals" -c --argjson b "$BODY_REBUTTALS" '. + $b' <<<"$REBUTTALS")
 
 # ---- verdicts, reactions, provider blocks, summary ------------------------------
 VERDICTS=$(crqe_verdicts "$ISSUE_COMMENTS" "$BOT") || die "cannot parse Codex verdict comments"
@@ -257,17 +368,39 @@ printf '%s\n' "$VERDICTS" >"$LEDGER_TMP/in_verdicts.json"
 printf '%s\n' "$REACTIONS" >"$LEDGER_TMP/in_reactions.json"
 printf '%s\n' "$BLOCKS" >"$LEDGER_TMP/in_blocks.json"
 printf '%s\n' "$SUMMARY_JSON" >"$LEDGER_TMP/in_summary.json"
+printf '%s\n' "$REBUTTALS" >"$LEDGER_TMP/in_rebuttals.json"
 INPUTS=$(jqx "ledger inputs" -n \
   --argjson pr "$PR_NUMBER" --arg repo "$REPO" --arg head "$HEAD_SHA" \
   --arg author "$AUTHOR" --arg bot "$BOT" --argjson required "$REQUIRED_JSON" \
   --slurpfile requests "$LEDGER_TMP/in_requests.json" --slurpfile reviews "$LEDGER_TMP/in_reviews.json" \
   --slurpfile verdicts "$LEDGER_TMP/in_verdicts.json" --slurpfile reactions "$LEDGER_TMP/in_reactions.json" \
   --slurpfile blocks "$LEDGER_TMP/in_blocks.json" --slurpfile summary "$LEDGER_TMP/in_summary.json" \
+  --slurpfile rebuttals "$LEDGER_TMP/in_rebuttals.json" \
   '{pr: $pr, repo: $repo, head_sha: $head, author: $author, bot: $bot,
     required_tiers: $required, requests: $requests[0], reviews: $reviews[0],
     verdicts: $verdicts[0], reactions: $reactions[0], blocks: $blocks[0],
-    summary: $summary[0]}')
+    summary: $summary[0], rebuttals: $rebuttals[0]}')
 LEDGER=$(crl_ledger "$INPUTS") || die "ledger computation failed"
+# The evidence reads above take time; a push that lands during them would
+# leave this ledger describing a head the PR no longer has. Re-read the live
+# head once every read is done and refuse a moved one.
+LIVE_HEAD=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null) \
+  || die "cannot re-read the PR #$PR_NUMBER head after the evidence reads"
+[ "$LIVE_HEAD" = "$HEAD_SHA" ] \
+  || die "PR #$PR_NUMBER head moved from $HEAD_SHA to $LIVE_HEAD during the ledger reads"
+# The blocking-review budget of the policy snapshot this ledger was read
+# under, by crqe_governing_budget's rule (absent: 10; not one to nine digits:
+# null), so a consumer can refuse a limit read from a different snapshot.
+MAX_BLOCKING=$(printf '%s' "$POLICY_JSON" | jq -c '
+  (if (has("codex") | not) then "10"
+   elif ((.codex | type) != "object") then null
+   elif (.codex | has("max_blocking_reviews")) then
+     (.codex.max_blocking_reviews | if (type == "string" or type == "number") then tostring else null end)
+   else "10" end)
+  | if type == "string" and test("^[0-9]{1,9}$") then tonumber else null end') \
+  || die "governing codex.max_blocking_reviews does not parse"
+LEDGER=$(jqx "ledger" -c --argjson m "$MAX_BLOCKING" --arg fp "$POLICY_FP" \
+  '. + {max_blocking_reviews: $m, policy_fingerprint: $fp}' <<<"$LEDGER")
 
 if [ "$SUMMARY" != true ]; then
   printf '%s\n' "$LEDGER"
