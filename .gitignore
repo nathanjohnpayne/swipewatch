@@ -3,6 +3,7 @@ node_modules/
 .env
 .env.*
 !*.tpl
+*.pem
 *.key
 service-account.json
 firebase-adminsdk*.json
@@ -40,3 +41,8 @@ test-results/
 # Misc
 tmp/
 .cache/
+
+# Mergepath runtime state (Phase 4b loop logs, Codex verdict ledger, merge
+# clearance markers) written by the synced scripts/. Local operational
+# state, never repository content.
+.mergepath/
