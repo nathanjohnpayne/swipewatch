@@ -60,7 +60,7 @@ This rule applies only to 1Password CLI sign-in and authentication errors. Other
 
 ## Cloud agent sessions
 
-A Claude Code cloud session or a Codex cloud task has no 1Password and no gh keyring, and the Claude cloud GitHub proxy's ambient token writes as `claude[bot]`, not as you. Before writing to GitHub from one, follow [Cloud Agent Environments](cloud-environments.md): provision the dedicated author and reviewer PATs it names, run `scripts/agent-capability-probe.sh` to learn what the session can do, and hand anything it cannot do (GraphQL-only helpers, multi-branch or cross-repo work) to a local session or CI. A cloud session may merge through the same gates as a local session; on Claude cloud that waits on a REST write path, because `gh pr` subcommands are GraphQL there.
+A Claude Code cloud session or a Codex cloud task has no 1Password and no gh keyring, and the Claude cloud GitHub proxy's ambient token writes as `claude[bot]`, not as you. Before writing to GitHub from one, follow [Cloud Agent Environments](cloud-environments.md): provision the dedicated author and reviewer PATs it names, run `scripts/agent-capability-probe.sh` to learn what the session can do, and hand anything it cannot do (GraphQL-only helpers, multi-branch or cross-repo work) to a local session or CI. On a cloud surface the write wrappers run the guarded `gh pr` / `gh issue` verbs as REST calls and read each byline back, because those subcommands are GraphQL and the Claude cloud proxy refuses them; `gh pr merge` stays refused there, because the merge gates read GraphQL, so a merge is parked with a handback for a local session.
 
 ## Secret handling
 
@@ -69,6 +69,16 @@ These three rules hold in every repository, whatever it deploys and however it d
 1. **Never move a secret through a human.** Do not ask anyone to paste a raw credential, token, or key into chat, an issue, or a PR comment, and never print a resolved secret value in logs or command output. A credential manager hands the value to the tool that needs it; it does not pass through a transcript.
 2. **No long-lived keys by convenience.** Do not introduce long-lived service-account keys or on-disk deploy keys into repo docs, scripts, or secret stores unless the project explicitly requires them and a human has approved that requirement. Short-lived, manager-resolved credentials are the default form.
 3. **Do not downgrade a repo's auth model unilaterally.** Where a repository's deploy or CI auth is 1Password-backed — the fleet default — switching it back to routine browser login, an interactive CLI login, or an unmanaged on-disk key needs explicit human approval. Reaching for the downgrade because a credential lookup failed is the specific move this rule forbids; see the pause-and-prompt procedure above.
+
+### Build and deploy isolation
+
+Production artifact builds run on a separate CI runner or account before deployment credentials are acquired. Repository build code and dependencies must have no deployment credentials, author/reviewer PATs, or filesystem access to the operator's credential-manager files and preflight caches, including through host mounts. Unsetting variables in a same-user shell or restricting cache-file permissions does not establish this isolation.
+
+Publish an immutable artifact with a digest and attestation bound to the intended repository and full source revision. Trusted post-build tooling verifies that binding and artifact integrity before acquiring deployment credentials, then deploys the verified artifact without rebuilding or executing the candidate checkout. Each repository owns its artifact format, verification implementation and platform-specific deploy adapter.
+
+Acquire each deployment credential only after successful build and artifact verification, and inject it only into the subprocess that consumes it. Author/reviewer PATs are not deployment credentials and must not be injected into build or deploy subprocesses. Credential preflight belongs in trusted post-build tooling; review/all-mode credential loading is not a build or deployment step. Retain the repository's approved authentication model and fail closed on failed build, verification or credential acquisition.
+
+Before marking a consumer migrated, exercise its real build and use fake credentials to prove both environment absence and denied filesystem/cache reachability. Verify credential acquisition occurs after build completion and each credential reaches only its intended subprocess. Shared guidance alone is not evidence that a consumer's adapter satisfies this boundary.
 
 ## Mutating MCP tool calls need explicit confirmation
 
@@ -145,6 +155,19 @@ Which issue to act on:
 - Polish/nit batch triage → the `polish-feedback-rollup YYYY-MM-DD` issue from the same daily cron. Lower urgency; can batch across multiple days.
 
 The rollup is per-repo: the workflow runs in the repository it is installed in and opens its issues there. Cross-repo aggregation is an explicit non-goal; the per-repo design preserves operator focus on the repo whose context they are currently in.
+
+## End of session: no pull request left on an unanswered verdict
+
+Measured in the hub (nathanjohnpayne/mergepath#2165): across the fourteen most recently merged multi-commit pull requests, 57% of created-to-merged wall-clock was idle gaps of ninety minutes or more, and every gap between nine and thirteen and a half hours began with a reviewer verdict — a Codex or CodeRabbit review, or a reviewer-identity comment — that no session was alive to act on. The verdict was ready within minutes; the pull request then waited for someone to open a session. The review loop itself is fast when a session is driving it; the cost is the session ending with the ball in the agent's court.
+
+A session therefore does not end with a pull request in either of these states unless it has posted a handoff:
+
+- the pull request's newest event is a verdict — a bot review, a bot verdict comment, a reviewer-identity review or comment, or a human reply — with no push, reply or review request after it; or
+- the pull request's head is CI-green, approved and unmerged.
+
+Finish the round instead: fix or rebut the findings and push, request the next review, or run the pre-merge gates and merge, in the order `REVIEW_POLICY.md` § Workflow prescribes. When the round genuinely cannot be finished in the session — the fix needs a human decision, the external reviewer has not answered, or the session has hit a capability ceiling — post a pull-request comment that names the next action and the identity expected to take it, and carries the tag `[mergepath-handoff]` on its own line so tooling can recognize it. The Phase 4b handoff (the `## External Review Required` comment) and the local-agent handback (`<!-- mergepath-handback: … -->`) already count as handoffs; the `human-hold`, `needs-human-review` and `policy-violation` labels already count as a human stop.
+
+A pull request with no handoff is fair game for any later session, including a scheduled resume routine, to pick up and continue from its newest event; a pull request with a handoff is left to the identity the handoff names. A handoff stays in force for as long as its marker is on the pull request, whatever happens after it; no later push, review or comment clears it. The identity it names clears it when the round is taken back, by editing or deleting the handoff comment so it no longer carries the marker. This rule is about the state a session leaves behind, not about who caused the wait: a session that is waiting on CI or on a requested review may end, because a machine acts next; a session that is holding an answered-for verdict may not.
 
 ## Link the issue a pull request resolves
 

@@ -156,6 +156,15 @@ if [ -r "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh" ]; then
   . "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh"
 fi
 
+# Governing author authority uses the same YAML parser as Phase 4b capture,
+# including valid flow-style/quoted keys. A missing parser is unknown authority.
+if [ ! -r "$__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh" ]; then
+  echo "ERROR: governing-policy parser missing: $__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh" >&2
+  exit 3
+fi
+# shellcheck source=lib/feedback-policy-helpers.sh
+. "$__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh"
+
 # --- Codex failure-marker regexes (#722) ------------------------------------
 # Source the shared usage-limit / not-connected marker patterns so gate (c)'s
 # failure message can name an account-level quota or app-not-connected block
@@ -547,8 +556,13 @@ if [ -z "$REVIEWERS" ]; then
   echo "ERROR: no available_reviewers found in $CONFIG" >&2
   exit 3
 fi
-AUTHOR_IDENTITY=$(grep -m1 '^author_identity:' "$CONFIG" | awk '{print $2}' | sed -E "s/^[\"']//; s/[\"']\$//" || true)
-AUTHOR_IDENTITY="${AUTHOR_IDENTITY:-nathanjohnpayne}"
+# The resolver above selected governing CONFIG; parse it rather than guessing
+# authority from line shape. Malformed present identities never use the default.
+AUTHOR_POLICY_JSON=$(policy_yaml_to_json "$CONFIG") &&
+  AUTHOR_IDENTITY=$(crqe_policy_author "$AUTHOR_POLICY_JSON") || {
+    echo "ERROR: governing policy author_identity could not be read" >&2
+    exit 3
+  }
 
 # --- logging helpers --------------------------------------------------------
 
@@ -864,6 +878,7 @@ while :; do
                     nodes {
                       __typename
                       ... on CheckRun {
+                        databaseId
                         name
                         status
                         conclusion
@@ -1002,6 +1017,7 @@ ROLLUP_JSON=$(echo "$ROLLUP_CONTEXTS" | jq '{
       # the suite is finer than the rule and reintroduces the #1076 permanent
       # deadlock, refuted by #1119.
       appId: ((.checkSuite.app.databaseId // "") | tostring),
+      databaseId: .databaseId,
       startedAt: .startedAt,
       completedAt: .completedAt,
       # A StatusContext (legacy commit status) has NO startedAt/completedAt —
@@ -1727,6 +1743,17 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
       else (sort_by(if .completedAt != "" then .completedAt else .startedAt end) | last)
       end;
 
+  # Controlled API generations are ordered by opening, never by completion.
+  # databaseId is server-assigned, monotonic and breaks whole-second ties.
+  # An incomplete older opening is retired by a newer generation; native
+  # Actions and foreign-app/legacy status contracts remain unchanged.
+  def current_api_entry:
+    if all(.[]; (.databaseId | type == "number") and .databaseId > 0
+        and .databaseId <= 9007199254740991 and (.databaseId | floor) == .databaseId)
+    then sort_by(.databaseId) | last
+    else {label:(.[0].label),result:"ERROR",status:"COMPLETED"}
+    end;
+
   # One required context, TWO surfaces. GitHub satisfies a required context
   # from a check run OR a legacy commit status, and when a head carries both
   # under one name it evaluates each as its own row and holds the merge until
@@ -1781,7 +1808,8 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
               and (($labels[0]) as $ctx | ($lineage_contexts | index($ctx)) != null)
            then (([$of_kind[] | (.lineage // "")] | unique)) as $lineages
                 | ($lineages[] as $l
-                   | ($of_kind | map(select((.lineage // "") == $l)) | current_entry))
+                   | ($of_kind | map(select((.lineage // "") == $l))
+                    | if $l == "api" then current_api_entry else current_entry end))
            else ($of_kind | current_entry)
            end) ];
 
@@ -1803,6 +1831,7 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
         # otherwise every legacy status compares equal and the winner is
         # whichever node sorted last, letting an older SUCCESS hide the current
         # FAILURE.
+        databaseId: (.databaseId // null),
         startedAt: (.startedAt // .createdAt // ""),
         completedAt: (.completedAt // .createdAt // ""),
         isRequired: .isRequired,
@@ -2910,10 +2939,14 @@ if [ "$CLEARED" != "true" ] && [ "$ALLOW_PHASE_4B_SUBSTITUTE" = "true" ]; then
         --arg login "$PHASE_4B_LOGIN" --arg at "$PHASE_4B_TIME" --arg sha "$HEAD_SHA" '
           [ .[] | select(.user.login == $login and .submitted_at == $at and .commit_id == $sha) ]
           | last
-          | [ (.body // "") | scan("<!-- mergepath-p4b-request-generation: ([^>]*) -->") | .[0] ]
-          | if length == 0 then "none"
-            elif length > 1 then "invalid"
-            else (last | try (fromjson | select(type == "array" and all(.[]; type == "number")) | tojson) catch "invalid")
+          | (.body // "") as $body
+          # #1619: count prefixes independently: a damaged/unterminated
+          # record is unreadable evidence, never an absent manual record.
+          | [ $body | scan("<!-- mergepath-p4b-request-generation") ] as $prefixes
+          | [ $body | scan("<!-- mergepath-p4b-request-generation: ([^>]*) -->") | .[0] ] as $records
+          | if ($prefixes | length) == 0 then "none"
+            elif ($prefixes | length) != 1 or ($records | length) != 1 then "invalid"
+            else ($records[0] | try (fromjson | select(type == "array" and all(.[]; type == "number")) | tojson) catch "invalid")
                  // "invalid"
             end' 2>/dev/null || printf invalid)
       if ! declare -F crqe_trigger_generation >/dev/null 2>&1 || ! declare -F crqe_latest_trigger_time >/dev/null 2>&1; then

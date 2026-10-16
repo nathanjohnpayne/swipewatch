@@ -854,7 +854,7 @@ test_legacy_one_line_refusal_quote_and_fence_stay_nonprovider() {
 
 test_legacy_refusal_classifier_unit() {
   local snip="$WORKDIR/legacy-refusal-classifier.sh" body class bad="" before=$FAIL
-  eval "$(grep -E '^(RATE_LIMIT_MARKER|PAUSED_MARKER|IN_PROGRESS_MARKER)=' \
+  eval "$(grep -E '^(RATE_LIMIT_MARKER|PAUSED_MARKER|IN_PROGRESS_MARKER|SUMMARY_MARKER)=' \
     "$ROOT/scripts/coderabbit-wait.sh")"
   # shellcheck source=../scripts/lib/coderabbit-fence.sh
   . "$ROOT/scripts/lib/coderabbit-fence.sh"
@@ -2493,7 +2493,9 @@ EOF
       bash "$harness" "$snip" "$trust" "$enabled" "$pause" "$terminal" "$prior" "$state" "$desc" >"$out" 2>"$WORKDIR/timeout-$name.err" || actual=$?
     [ "$actual" = "$rc" ] || fail "940 $name: expected rc $rc, got $actual"
     local n
-    n=$(grep -c '^true|--trigger-only 999 owner/repo$' "$WORKDIR/timeout-$name.events" || true)
+    # The failover passes --allow-moving-head (#2166): it must always be able
+    # to hand a rate-limited head to Codex, whatever the head's age.
+    n=$(grep -c '^true|--trigger-only --allow-moving-head 999 owner/repo$' "$WORKDIR/timeout-$name.events" || true)
     [ "$n" = "$calls" ] || fail "940 $name: expected $calls gated Codex trigger(s), got $n"
     if [ "$pause" = true ] || [ "$terminal" != none ] || [ "$trust" = false ]; then
       ! grep -q '^status-read$' "$WORKDIR/timeout-$name.events" || fail "940 $name: later status read ran despite earlier precedence or opt-out"
