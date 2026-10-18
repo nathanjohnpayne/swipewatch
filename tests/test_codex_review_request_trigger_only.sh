@@ -494,7 +494,9 @@ test_missing_governing_codex_block_defaults_request_cap() {
   local dir rc before=$FAIL
   dir=$(make_case "request-cap-base-no-codex")
   printf 'author_identity: nathanjohnpayne\n' > "$dir/state/base-review-policy.yml"
-  rc=$(run_trigger_only "$dir" cap_at_limit)
+  # An absent request_by_default now belongs to the governing target too.
+  # Explicit gating reaches the cap whose default this case exercises.
+  rc=$(run_trigger_only "$dir" cap_at_limit true)
   [ "$rc" = 7 ] || fail "#813 missing governing codex: expected default-cap exit 7, got $rc; err=$(cat "$dir/err.log")"
   [ "$(trig_count "$dir")" = 0 ] || fail "#813 missing governing codex: posted despite default cap exhaustion"
   grep -q 'request-attempt cap reached.*10/10' "$dir/err.log" \
@@ -1413,6 +1415,37 @@ test_guard_policy_knobs_disable_signals() {
   [ "$FAIL" -ne "$before" ] || pass "MH7: request_min_head_age_seconds / request_requires_check are honoured, and 0 / empty disable each signal"
 }
 
+# #2340: value and presence use YAML for flow mappings and quoted keys too.
+test_guard_check_signal_yaml_forms() {
+  refresh_head_dates
+  local dir rc shape before=$FAIL
+  for shape in flow-name quoted-name flow-empty flow-null flow-absent; do
+    dir=$(make_case "guard-yaml-$shape")
+    case "$shape" in
+      flow-name) printf '%s\n' 'author_identity: nathanjohnpayne' 'codex: {request_by_default: true, request_requires_check: not-lint}' >"$dir/.github/review-policy.yml" ;;
+      quoted-name) printf '%s\n' 'author_identity: nathanjohnpayne' 'codex:' '  request_by_default: true' '  "request_requires_check": not-lint' >"$dir/.github/review-policy.yml" ;;
+      flow-empty) printf '%s\n' 'author_identity: nathanjohnpayne' 'codex: {request_by_default: true, request_requires_check: ""}' >"$dir/.github/review-policy.yml" ;;
+      flow-null) printf '%s\n' 'author_identity: nathanjohnpayne' 'codex: {request_by_default: true, request_requires_check: null}' >"$dir/.github/review-policy.yml" ;;
+      flow-absent) printf '%s\n' 'author_identity: nathanjohnpayne' 'codex: {request_by_default: true}' >"$dir/.github/review-policy.yml" ;;
+    esac
+    case "$shape" in
+      *name)
+        rc=$(CODEX_TEST_CHECK_RUNS=missing run_guard "$dir" fresh "$OLD_HEAD" completed "" --trigger-only)
+        [ "$rc" = 8 ] && [ "$(trig_count "$dir")" = 0 ] || fail "$shape: missing named check must refuse (rc=$rc)"
+        ;;
+      flow-empty|flow-null)
+        rc=$(run_guard "$dir" fresh "$OLD_HEAD" missing "" --trigger-only)
+        [ "$rc" = 0 ] && [ "$(trig_count "$dir")" = 1 ] || fail "$shape: explicit empty must disable CI pickup (rc=$rc)"
+        ;;
+      flow-absent)
+        rc=$(run_guard "$dir" fresh "$OLD_HEAD" missing "" --trigger-only)
+        [ "$rc" = 8 ] && [ "$(trig_count "$dir")" = 0 ] || fail "$shape: absent key must retain the workflow signal (rc=$rc)"
+        ;;
+    esac
+  done
+  [ "$FAIL" -ne "$before" ] || pass "#2340: flow/quoted check names and absent/explicit-empty CI pickup meanings are preserved"
+}
+
 # MH8: an automatic caller (CI failover on a provider event) is exempt. It
 # fires on CodeRabbit's rate limit, not on a push the agent is amending, and a
 # refusal would strand the head with no caller left to re-request.
@@ -1490,14 +1523,12 @@ test_guard_anchors_on_push_dispatch() {
   [ "$FAIL" -ne "$before" ] || pass "MH11: the age signal is anchored on the latest repo-lint dispatch for the head on the PR branch, not only the commit date"
 }
 
-# MH12 (Codex P2 on #2175): the policy is read from the SCRIPT's checkout.
-# Launched from a subdirectory, or by absolute path from another directory,
-# a cwd-relative read found no policy and silently restored
-# request_by_default: true. Under-threshold (not gated) + false => exit 5.
+# MH12 (#2175, #2273): the target policy governs from a subdirectory or a
+# foreign cwd, even when the script checkout requests by default.
 test_policy_resolved_from_script_checkout() {
   local dir rc before=$FAIL
   dir=$(make_case "policy-subdir")
-  sed -i.bak 's/^  request_by_default: true.*/  request_by_default: false/' "$dir/.github/review-policy.yml"
+  sed -i.bak 's/^  request_by_default: true.*/  request_by_default: false/' "$dir/state/base-review-policy.yml"
   rc=0
   ( cd "$dir/scripts" && PATH="$dir/bin:$PATH" GH_TOKEN=test-token CODEX_TEST_STATE_DIR="$dir/state" \
       CODEX_TEST_SCENARIO=fresh ./codex-review-request.sh --trigger-only 999 owner/repo \
@@ -1505,14 +1536,14 @@ test_policy_resolved_from_script_checkout() {
   [ "$rc" = "5" ] && [ "$(trig_count "$dir")" = "0" ] \
     || fail "MH12: run from scripts/, request_by_default: false must skip with exit 5 (rc=$rc posts=$(trig_count "$dir")); err=$(cat "$dir/err.log")"
   dir=$(make_case "policy-foreign-cwd")
-  sed -i.bak 's/^  request_by_default: true.*/  request_by_default: false/' "$dir/.github/review-policy.yml"
+  sed -i.bak 's/^  request_by_default: true.*/  request_by_default: false/' "$dir/state/base-review-policy.yml"
   rc=0
   ( cd "$WORKDIR" && PATH="$dir/bin:$PATH" GH_TOKEN=test-token CODEX_TEST_STATE_DIR="$dir/state" \
       CODEX_TEST_SCENARIO=fresh "$dir/scripts/codex-review-request.sh" --trigger-only 999 owner/repo \
       >"$dir/out.json" 2>"$dir/err.log" ) || rc=$?
   [ "$rc" = "5" ] && [ "$(trig_count "$dir")" = "0" ] \
     || fail "MH12b: by absolute path from a foreign cwd, request_by_default: false must skip with exit 5 (rc=$rc posts=$(trig_count "$dir"))"
-  [ "$FAIL" -ne "$before" ] || pass "MH12: the requester reads the policy from its own checkout, not the caller cwd"
+  [ "$FAIL" -ne "$before" ] || pass "MH12: the governing target policy wins over both checkout and caller cwd"
 }
 
 # MH13: the CI-pickup signal is the repo-lint WORKFLOW RUN, which survives job
@@ -1671,6 +1702,7 @@ test_guard_reports_both_reasons
 test_guard_accepts_queued_check
 test_guard_unreadable_check_runs_fails_open
 test_guard_policy_knobs_disable_signals
+test_guard_check_signal_yaml_forms
 test_guard_exempts_automatic_caller
 test_guard_does_not_run_on_no_write_paths
 test_guard_applies_in_polling_mode
