@@ -407,8 +407,9 @@ fi
 
 # --- config readers ---------------------------------------------------------
 
-# Resolve the policy from the SCRIPT's checkout, not $PWD (Codex P2 on #2175),
-# the way coderabbit-should-invoke.sh and phase-4b-classifier.sh already do.
+# Runtime knobs retain the SCRIPT's checkout, not $PWD (Codex P2 on #2175).
+# The entry decision below materializes REPO's governing base policy for its
+# enabled/request_by_default switches (#2273).
 # A cwd-relative path read no file at all when the script ran from a
 # subdirectory or by absolute path from elsewhere, and every codex: key then
 # took its default -- request_by_default then to true (since #2240 a
@@ -574,13 +575,14 @@ __CODEX_REQ_LIBDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # at the moment the next one is assigned keeps exactly one file live, and the
 # trap removes that one.
 __CRA_BASE_CFG_TMP=""
+__CRA_ENTRY_CFG_TMP=""
 __cra_retire_base_cfg() { # <new-path-or-empty>
   if [ -n "$__CRA_BASE_CFG_TMP" ] && [ "$__CRA_BASE_CFG_TMP" != "${1:-}" ]; then
     rm -f "$__CRA_BASE_CFG_TMP"
   fi
   __CRA_BASE_CFG_TMP="${1:-}"
 }
-trap '__cra_retire_base_cfg ""' EXIT
+trap '__cra_retire_base_cfg ""; [ -z "$__CRA_ENTRY_CFG_TMP" ] || rm -f "$__CRA_ENTRY_CFG_TMP"' EXIT
 REQUIRED_TIERS_JSON='["p1"]'
 if [ -r "$__CODEX_REQ_LIBDIR/lib/feedback-policy-helpers.sh" ]; then
   # shellcheck source=lib/feedback-policy-helpers.sh
@@ -636,8 +638,7 @@ fi
 # per-repo docs call this script without the flag, and a Phase 4 PR must not
 # lose its mandatory request because of that. Only a PR the derivation reads
 # as under-threshold is skipped (exit 5, NO_TRIGGER_REQUESTED).
-CODEX_ENABLED=$(codex_field enabled)
-CODEX_ENABLED=${CODEX_ENABLED:-true}
+CODEX_ENABLED=true
 
 # Resolve codex.request_by_default (#2240). Sets REQUEST_BY_DEFAULT to
 # true|false and REQUEST_BY_DEFAULT_SOURCE to explicit|unset|failsafe.
@@ -1127,6 +1128,20 @@ derive_phase_4a_gate() {
 # or 1 (skip). Kept as a function so the decision is testable in one place
 # and reads as a single boolean expression at the call site.
 should_request_codex() {
+  # Keep the established readers, but scope their CONFIG to the policy of
+  # REPO's base. The script's checkout can belong to another repository.
+  local CONFIG="$CONFIG" entry_cfg
+  entry_cfg=$("$__CODEX_REQUEST_DIR/workflow/resolve_base_policy.sh" \
+    --repo "$REPO" --pr "$PR_NUMBER" --default-config "$CONFIG" \
+    --materialize-default 2>/dev/null) || entry_cfg=""
+  if [ -z "$entry_cfg" ] || [ ! -r "$entry_cfg" ]; then
+    request_by_default_failsafe "could not resolve the governing policy for $REPO#$PR_NUMBER"
+    return 0
+  fi
+  [ "$entry_cfg" = "$CONFIG" ] || __CRA_ENTRY_CFG_TMP="$entry_cfg"
+  CONFIG="$entry_cfg"
+  CODEX_ENABLED=$(codex_field enabled)
+  CODEX_ENABLED=${CODEX_ENABLED:-true}
   # Codex off ⇒ never trigger (orthogonality rule).
   [ "$CODEX_ENABLED" = "true" ] || return 1
   # A caller-flagged Phase-4a-gated PR is always requested: Phase 4 review is
@@ -1212,18 +1227,38 @@ fi
 REQUEST_MIN_HEAD_AGE_SECONDS=$(codex_field request_min_head_age_seconds)
 REQUEST_MIN_HEAD_AGE_SECONDS=${REQUEST_MIN_HEAD_AGE_SECONDS:-300}
 # REQUEST_SIGNAL_MODE: workflow (key absent), check (key set to a name) or
-# off (key present and empty). codex_field returns empty for both absent and
-# empty, so the presence test is made separately.
+# off (key present and empty). Resolve value and presence together as YAML
+# inside the write guard, preserving disabled/no-request entry paths.
 REQUEST_WORKFLOW_NAME=repo-lint
 REQUEST_WORKFLOW_PATH=.github/workflows/repo_lint.yml
-REQUEST_REQUIRES_CHECK=$(codex_field request_requires_check)
-if [ -n "$REQUEST_REQUIRES_CHECK" ]; then
-  REQUEST_SIGNAL_MODE=check
-elif [ -f "$CONFIG" ] && awk '/^codex:/{b=1;next} b&&/^[^[:space:]#]/{b=0} b&&$1=="request_requires_check:"{f=1} END{exit !f}' "$CONFIG"; then
-  REQUEST_SIGNAL_MODE=off
-else
-  REQUEST_SIGNAL_MODE=workflow
-fi
+REQUEST_REQUIRES_CHECK=""
+REQUEST_SIGNAL_MODE=workflow
+resolve_request_check_signal() {
+  local policy selection
+  # Preserve the bootstrap default when there is no policy file.
+  [ -f "$CONFIG" ] || return 0
+  policy=$(policy_yaml_to_json "$CONFIG") || {
+    echo "ERROR: codex.request_requires_check policy could not be parsed" >&2
+    exit 3
+  }
+  selection=$(printf '%s' "$policy" | jq -ce '
+    if . == null then {} else . end
+    | if type != "object" then error("policy must be a mapping") else . end
+    | (.codex // {})
+    | if type != "object" then error("codex must be a mapping") else . end
+    | if has("request_requires_check") then
+        .request_requires_check
+        | if . == null or . == "" then {mode:"off",name:""}
+          elif type == "string" then {mode:"check",name:.}
+          else error("request_requires_check must be a check name or empty") end
+      else {mode:"workflow",name:""} end
+  ') || {
+    echo "ERROR: codex.request_requires_check must name a check or be empty" >&2
+    exit 3
+  }
+  REQUEST_SIGNAL_MODE=$(printf '%s' "$selection" | jq -r .mode)
+  REQUEST_REQUIRES_CHECK=$(printf '%s' "$selection" | jq -r .name)
+}
 
 POLL_INTERVAL_SECONDS=15
 ACK_POLL_INTERVAL_SECONDS=5
@@ -1330,8 +1365,8 @@ fetch_scan_array() {
 }
 
 # --- Phase 4a entry gate (#486) ---------------------------------------------
-# Evaluate the request decision BEFORE any PR fetch / signal scan / trigger
-# write. When the decision is "skip", emit a minimal JSON object (same field
+# Evaluate the request decision after its governing-policy metadata lookup,
+# before per-head signal scanning or trigger writes. On "skip", emit a minimal JSON object (same field
 # names as the terminal output, all signals null) and exit 5
 # (NO_TRIGGER_REQUESTED) so the caller can distinguish "deliberately did not
 # request" from a timeout (4) or an API error (3).
@@ -1427,7 +1462,7 @@ log "ack_wait = ${ACK_WAIT_SECONDS}s    max_ack_retries = $MAX_ACK_RETRIES"
 # success. Emits empty object { "review": null, "findings": [], "reaction": null }
 # if nothing matches yet.
 scan_codex_state() {
-  local reviews comments issue_comments review findings reaction verdict blocked approval_time
+  local reviews comments issue_comments review findings reaction verdict blocked approval_time request summary
 
   # Each read must propagate fetch_api_array's status explicitly (#966):
   # scan_codex_state is invoked from every call site as
@@ -1575,31 +1610,39 @@ scan_codex_state() {
     blocked='null'
   fi
 
-  printf '%s\n' "$review" "$findings" "$reaction" "$verdict" "$blocked" | jq -s --arg approval_time "$approval_time" '
-    if length != 5 then error("incomplete Codex scan components") else
-      { review: .[0], findings: .[1], reaction: .[2], verdict: .[3], blocked: .[4], review_approval_eligible: ($approval_time != "") }
+  request=$(crqe_select_trigger "$issue_comments" "$AUTHOR_IDENTITY" "") || return 3
+  summary=$(crqe_select_codex_review_summary "$issue_comments" "$BOT_LOGIN" "$HEAD_SHA") || return 3
+  blocked=$(crqe_filter_provider_block "$blocked" "$request" "$summary") || return 3
+
+  printf '%s\n' "$review" "$findings" "$reaction" "$verdict" "$blocked" "$request" | jq -s --arg approval_time "$approval_time" '
+    if length != 6 then error("incomplete Codex scan components") else
+      { review: .[0], findings: .[1], reaction: .[2], verdict: .[3], blocked: .[4], request: .[5], review_approval_eligible: ($approval_time != "") }
     end
   '
 }
 
 # Echo the failure-marker reason (usage_limit|not_connected) carried by a scan
 # that should short-circuit the wait, else empty. When a trigger was posted
-# this run, the marker must be at/after the trigger threshold (a response to
-# THIS trigger, mirroring has_post_trigger_signal); otherwise any marker
-# counts. A usage_limit / not_connected block cannot be cleared by re-polling
+# this run, retain that confirmed request boundary even when the API scan has
+# not observed the new comment yet. Scans already filter against their latest
+# exact author request and active current-head summary. A block is not fixed by re-polling
 # or re-triggering — only a human upgrading/connecting the account resolves
 # it — so treating it as a wait-ending signal is correct (#722).
 current_blocked_reason() {
-  local scan=$1
+  local scan=$1 block request after
+  block=$(printf '%s' "$scan" | jq -c .blocked) || return 3
+  request=$(printf '%s' "$scan" | jq -c '.request // null') || return 3
   if [ "$TRIGGER_POSTED" = "true" ] || [ "${CAP_REUSED_TRIGGER:-false}" = true ] \
      || [ "${RESUMED_TRIGGER:-false}" = true ]; then
-    local after=${TRIGGER_SIGNAL_THRESHOLD:-$TRIGGER_POST_TIME}
-    echo "$scan" | jq -r --arg after "$after" '
-      if (.blocked != null and .blocked.created_at >= $after)
-      then .blocked.reason else "" end'
-  else
-    echo "$scan" | jq -r 'if .blocked != null then .blocked.reason else "" end'
+    after=${TRIGGER_SIGNAL_THRESHOLD:-$TRIGGER_POST_TIME}
+    request=${REQUEST_BLOCK_TRIGGER_JSON:-null}
+    if [ "$TRIGGER_POSTED" = true ] || [ "$request" = null ]; then
+      request=$(jq -nc --arg at "$after" --arg id "${TRIGGER_COMMENT_ID:-}" \
+        '{created_at:$at,id:($id | tonumber? // null)}') || return 3
+    fi
   fi
+  block=$(crqe_filter_provider_block "$block" "$request") || return 3
+  printf '%s' "$block" | jq -r 'if . == null then "" else .reason end'
 }
 
 # Returns 0 iff the scan produced a commit-anchored signal (review or
@@ -2189,6 +2232,7 @@ MOVING_HEAD_CHECK_STATUS=""
 MOVING_HEAD_ANCHOR=""
 refuse_moving_head_unless_allowed() {
   local reasons="" pushed_epoch now_epoch age runs status allow=false
+  resolve_request_check_signal
   # A malformed knob is a configuration error on the write path: refuse
   # before the guard's own reads and before any write (#2253; it used to be
   # checked at load time, which also failed the no-write paths).
@@ -2442,9 +2486,12 @@ post_codex_trigger() {
       || die 3 "cannot select the final Codex request"
     if [ "$TRIGGER_ONLY" != true ] && [ "$pending_trigger" != null ]; then
       CAP_REUSED_TRIGGER=true
+      REQUEST_BLOCK_TRIGGER_JSON=$pending_trigger
       TRIGGER_SIGNAL_THRESHOLD=$(printf '%s' "$pending_trigger" | jq -r '.created_at')
+      local pending_block_reason
+      pending_block_reason=$(current_blocked_reason "$INITIAL_SCAN") || die 3 "cannot order the final-request provider refusal"
       if ! has_post_trigger_signal "$INITIAL_SCAN" \
-         && [ -z "$(current_blocked_reason "$INITIAL_SCAN")" ]; then
+         && [ -z "$pending_block_reason" ]; then
         preserve_final_request_timeout "$request_comments" "$pending_trigger"
         CAP_REQUEST_COUNT=$request_count
         CAP_REQUEST_LIMIT=$max_review_rounds
@@ -2603,8 +2650,10 @@ wait_for_trigger_ack() {
     # too (#722): re-posting `@codex review` cannot help a quota-exhausted or
     # not-connected account, so stop the ack gate (no re-trigger) and let the
     # poll loop short-circuit on the marker FINAL_SCAN already carries.
-    if [ -n "$(current_blocked_reason "$FINAL_SCAN")" ]; then
-      log "Codex reported '$(current_blocked_reason "$FINAL_SCAN")' during eyes-ack wait — no re-trigger (a human must resolve it); handing to the poll loop to short-circuit (#722)"
+    local ack_block_reason
+    ack_block_reason=$(current_blocked_reason "$FINAL_SCAN") || die 3 "cannot order the eyes-ack provider refusal"
+    if [ -n "$ack_block_reason" ]; then
+      log "Codex reported '$ack_block_reason' during eyes-ack wait — no re-trigger (a human must resolve it); handing to the poll loop to short-circuit (#722)"
       return 0
     fi
     if has_post_trigger_signal "$FINAL_SCAN"; then
@@ -2816,8 +2865,11 @@ resume_pending_codex_request() {
   # a new request, so do not resume.
   TRIGGER_SIGNAL_THRESHOLD=$created
   RESUMED_TRIGGER=true
+  REQUEST_BLOCK_TRIGGER_JSON=$pending
+  local resume_block_reason
+  resume_block_reason=$(current_blocked_reason "$INITIAL_SCAN") || die 3 "cannot order the pending-request provider refusal"
   if has_post_trigger_signal "$INITIAL_SCAN" \
-     || [ -n "$(current_blocked_reason "$INITIAL_SCAN")" ]; then
+     || [ -n "$resume_block_reason" ]; then
     TRIGGER_SIGNAL_THRESHOLD=""
     RESUMED_TRIGGER=false
     return 1
@@ -2878,6 +2930,7 @@ resume_pending_codex_request() {
   RESUMED_TRIGGER=true
   RESUMED_EVER=true
   RESUMED_TRIGGER_ID=$(printf '%s' "$pending" | jq -r .id)
+  REQUEST_BLOCK_TRIGGER_JSON=$pending
   TRIGGER_SIGNAL_THRESHOLD=$created
   START_TS=$created_epoch
   DEADLINE=$deadline
@@ -2912,6 +2965,7 @@ RESUMED_TRIGGER=false
 RESUMED_EVER=false
 [ "${MERGEPATH_CODEX_RESUME_EXPIRED:-}" != 1 ] || RESUMED_EVER=true
 RESUMED_TRIGGER_ID=""
+REQUEST_BLOCK_TRIGGER_JSON=null
 
 if [ "$AUTHORIZE_TRIGGER_WRITE" = true ]; then
   post_codex_trigger
@@ -3014,7 +3068,7 @@ while :; do
   # (FALLBACK_REQUIRED) because no real Codex signal arrived — but now with
   # blocked_reason in the JSON so the caller (and the Phase 4b handoff) can
   # name the real cause instead of a generic timeout.
-  BLOCKED_REASON_NOW=$(current_blocked_reason "$FINAL_SCAN")
+  BLOCKED_REASON_NOW=$(current_blocked_reason "$FINAL_SCAN") || die 3 "cannot order the polled provider refusal"
   if [ -n "$BLOCKED_REASON_NOW" ]; then
     log "Codex reported '$BLOCKED_REASON_NOW' after ${ELAPSED}s — short-circuiting the wait; re-polling/re-triggering cannot clear it. The result preserves the invocation's existing routing authority (#722)"
     break
@@ -3052,8 +3106,9 @@ run_review_poll
 # this run's captured HEAD_SHA and its expired deadline into the replacement.
 # Nothing has been written to stdout yet, so the fresh run's JSON is the only
 # result.
+RESUMED_BLOCK_REASON=$(current_blocked_reason "$FINAL_SCAN") || die 3 "cannot order the resumed provider refusal"
 if [ "$RESUMED_TRIGGER" = true ] && ! has_post_trigger_signal "$FINAL_SCAN" \
-   && [ -z "$(current_blocked_reason "$FINAL_SCAN")" ]; then
+   && [ -z "$RESUMED_BLOCK_REASON" ]; then
   log "resumed request $RESUMED_TRIGGER_ID drew no Codex response within ${TIMEOUT_SECONDS}s of its posting — re-running as a fresh request with resume disabled (#1550)"
   export MERGEPATH_CODEX_RESUME_EXPIRED=1
   exec bash "$0" ${__CRR_ORIGINAL_ARGS[@]+"${__CRR_ORIGINAL_ARGS[@]}"}
@@ -3075,7 +3130,7 @@ fi
 # Surface the account-/connection-level block (#722) on the final scan, using
 # the same post-trigger anchoring as the poll short-circuit so a stale marker
 # from a prior HEAD does not leak into this run's report. Empty ⇒ null.
-BLOCKED_REASON=$(current_blocked_reason "$FINAL_SCAN")
+BLOCKED_REASON=$(current_blocked_reason "$FINAL_SCAN") || die 3 "cannot order the final provider refusal"
 
 # A plain timeout is a terminal Phase 4a determination, not ordinary pending.
 # Persist it before emitting exit 4 so a later Phase 4b process can consume it.
