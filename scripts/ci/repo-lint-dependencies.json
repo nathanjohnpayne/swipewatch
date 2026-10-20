@@ -187,6 +187,7 @@
     ],
     "check_dependabot_coupled_groups": [
       ".github/dependabot.yml",
+      ".github/workflows/repo_lint.yml",
       "scripts/ci/dependabot_coupled_groups.py",
       "scripts/ci/dependabot-coupled-families.json",
       "scripts/lib/ci-check-modes.sh",
@@ -427,7 +428,8 @@
       "tests/test_dependabot_auto_merge_check_wait.sh",
       "tests/test_655_repo_lint_local_observed.sh",
       "tests/test_load_review_config.sh",
-      "scripts/ci/fixtures/workflow-parsers/*"
+      "scripts/ci/fixtures/workflow-parsers/*",
+      "scripts/lib/head-check-runs.sh"
     ],
     "check_workflow_verify_propagation_templated": [
       "tests/test_verify_propagation_pr_templated.sh"
