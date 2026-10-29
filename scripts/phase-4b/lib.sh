@@ -16,7 +16,14 @@
 p4b_log()  { echo "[phase-4b] $*" >&2; }
 p4b_warn() { echo "[phase-4b] WARN: $*" >&2; }
 # p4b_die <exit-code> <message...>
-p4b_die()  { local c="$1"; shift; echo "[phase-4b] ERROR: $*" >&2; exit "$c"; }
+p4b_die() {
+  local c="$1"; shift
+  echo "[phase-4b] ERROR: $*" >&2
+  # The orchestrator can retain a validated but unpublished verdict (#2790).
+  # Diagnostics are advisory: never replace the original refusal's exit code.
+  if declare -F p4b_die_diagnostic >/dev/null 2>&1; then p4b_die_diagnostic "$c" "$@" || true; fi
+  exit "$c"
+}
 
 # --- config location -------------------------------------------------------
 
@@ -833,10 +840,13 @@ p4b_reconcile_posted_review() {
 # Pure (#2663). Print phase_4b_automation.max_review_rounds from the PR's
 # GOVERNING base policy, so a PR cannot raise its own cap, or "none" when the
 # key is absent (the cap is then unenforced, as before). Returns 2 when the
-# value is present but is not a positive integer.
+# value is present but is not a positive integer, and when the block itself is
+# present but is not a mapping: a scalar or list there is a malformed policy,
+# not "no cap", the same as crqe_governing_budget treats `codex` (#2746).
 p4b_governing_round_cap() {
   printf '%s' "${1:-}" | jq -er '
-    if (.phase_4b_automation | type) != "object" then "none"
+    if .phase_4b_automation == null then "none"
+    elif (.phase_4b_automation | type) != "object" then error("invalid")
     elif (.phase_4b_automation | has("max_review_rounds") | not) then "none"
     elif (.phase_4b_automation.max_review_rounds | type) == "number"
          and .phase_4b_automation.max_review_rounds >= 1
