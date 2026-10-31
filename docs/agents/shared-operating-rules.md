@@ -23,6 +23,21 @@ This applies to every hand-rolled, mid-session investigative query, not just the
 
 The shipped gate scripts already bake this in --- `fetch_api_array` wraps `gh api --paginate` for the REST arrays, and the GraphQL reads use cursor loops --- so this rule is aimed at the ad-hoc queries those helpers do not cover. When in doubt, add `--paginate`: it is a no-op on a short list and the only safe default on a long one.
 
+## GitHub REST and GraphQL rate limits are separate budgets
+
+GitHub meters REST and GraphQL separately. A user token gets 5,000 REST requests per hour and, independently, 5,000 GraphQL points per hour; exhausting one leaves the other intact. When a GraphQL call fails on the primary rate limit, switch that work to the equivalent REST endpoints and keep going, rather than waiting for the GraphQL window to reset.
+
+Several `gh` commands are GraphQL under the hood and spend that budget: `gh pr view --json`, `gh pr list`, `gh issue view --json`, `gh issue list`, `gh project ...` and `gh api graphql`. Their REST equivalents are plain `gh api` paths, for example `repos/OWNER/REPO/pulls/N`, `.../pulls/N/reviews`, `.../pulls/N/comments`, `.../issues/N`, `.../issues/N/comments` and `.../commits/SHA/check-runs`, each with `--paginate` under the rule above.
+
+Board moves are the exception: defer them until `resources.graphql.reset` rather than switching. GitHub does publish Projects (v2) REST endpoints, but the board helpers under `scripts/gh-projects/` are GraphQL-only and verify the author identity before every write, which a raw `gh api` call skips. The user-owned board endpoint also rejects fine-grained PATs. Never report a board move as done if it has not happened.
+
+Classify the failure by its message, not by its HTTP status. A GraphQL error can arrive as HTTP 200 with an `errors` entry as well as a 403 or 429. Check for a secondary limit first, because it can arrive with the primary budget also at zero:
+
+1. **Secondary (abuse) limit:** the message mentions a secondary rate limit, or the response carries `Retry-After`. It applies across both APIs, so switching to REST just hits it again. Back off instead: wait for `Retry-After` when present; otherwise, if `x-ratelimit-remaining` is 0, wait until `x-ratelimit-reset`; otherwise wait at least one minute. Lengthen the wait on each repeat. Most `gh` commands hide the response headers (`gh api --include` shows them); when you cannot see them, use the one-minute floor and lengthen it. Do not call `gh api rate_limit` until the wait is over: the probe itself counts against the secondary limit, and it can read healthy during one.
+2. **Primary limit:** otherwise, when the message says `API rate limit exceeded`, or `gh api rate_limit --jq '.resources | {core, graphql}'` shows that API's `remaining` at 0. Switching APIs works.
+
+GitHub App installation tokens (CI workflows) have their own separate budget.
+
 ## Background jobs and expected duration
 
 A backgrounded command must have an expected duration stated when it is launched, and must be checked against that expectation. Never report "still running" as a status without comparing elapsed time to the expectation. A completion notification fires only on completion; a hung job produces no notification and no error — it is indistinguishable from a job legitimately working. Passive waiting has no failure detection by default.
@@ -50,7 +65,7 @@ Then follow this procedure:
 2. **Check if preflight was run.** If `OP_PREFLIGHT_DONE` is not set, suggest running the preflight script:
    > "1Password auth failed. Would you like to run credential preflight to cache all credentials at once? `eval \"$(scripts/op-preflight.sh --agent {your-agent} --mode review)\"`"
    >
-   > (Use `--mode deploy` or `--mode all` instead if a deploy is in scope; the default is now `review` per nathanjohnpayne/mergepath#282.)
+   > (`--mode deploy` is not an approved deployment setup: a cache hit can export review PATs, and evaluating its output exposes credentials to the caller's whole shell. Do not use `--mode all` for builds or deployment. Wait for separately reviewed post-build tooling that selects only deploy credentials and scopes them to one consuming subprocess after artifact verification. See [Build and deploy isolation](#build-and-deploy-isolation). The default is `review` per nathanjohnpayne/mergepath#282.)
 3. **If preflight was already run** but credentials expired (rare — only after 1Password locks or the 12-hour hard limit), prompt the human and suggest re-running preflight:
    > "Preflight credentials appear to have expired. Could you re-run preflight when you're back? I need to resume the review."
 4. **Wait for the human to confirm** they are present and ready before re-running preflight (not individual `op read` commands).
@@ -60,7 +75,7 @@ This rule applies only to 1Password CLI sign-in and authentication errors. Other
 
 ## Cloud agent sessions
 
-A Claude Code cloud session or a Codex cloud task has no 1Password and no gh keyring, and the Claude cloud GitHub proxy's ambient token writes as `claude[bot]`, not as you. Before writing to GitHub from one, follow [Cloud Agent Environments](cloud-environments.md): provision the dedicated author and reviewer PATs it names, run `scripts/agent-capability-probe.sh` to learn what the session can do, and hand anything it cannot do (GraphQL-only helpers, multi-branch or cross-repo work) to a local session or CI. A cloud session may merge through the same gates as a local session; on Claude cloud that waits on a REST write path, because `gh pr` subcommands are GraphQL there.
+A Claude Code cloud session or a Codex cloud task has no 1Password and no gh keyring, and the Claude cloud GitHub proxy's ambient token writes as `claude[bot]`, not as you. Before writing to GitHub from one, follow [Cloud Agent Environments](cloud-environments.md): provision the dedicated author and reviewer PATs it names, run `scripts/agent-capability-probe.sh` to learn what the session can do, and hand anything it cannot do (GraphQL-only helpers, multi-branch or cross-repo work) to a local session or CI. On a cloud surface the write wrappers run the guarded `gh pr` / `gh issue` verbs as REST calls and read each byline back, because those subcommands are GraphQL and the Claude cloud proxy refuses them; `gh pr merge` stays refused there, because the merge gates read GraphQL, so a merge is parked with a handback for a local session.
 
 ## Secret handling
 
@@ -69,6 +84,16 @@ These three rules hold in every repository, whatever it deploys and however it d
 1. **Never move a secret through a human.** Do not ask anyone to paste a raw credential, token, or key into chat, an issue, or a PR comment, and never print a resolved secret value in logs or command output. A credential manager hands the value to the tool that needs it; it does not pass through a transcript.
 2. **No long-lived keys by convenience.** Do not introduce long-lived service-account keys or on-disk deploy keys into repo docs, scripts, or secret stores unless the project explicitly requires them and a human has approved that requirement. Short-lived, manager-resolved credentials are the default form.
 3. **Do not downgrade a repo's auth model unilaterally.** Where a repository's deploy or CI auth is 1Password-backed — the fleet default — switching it back to routine browser login, an interactive CLI login, or an unmanaged on-disk key needs explicit human approval. Reaching for the downgrade because a credential lookup failed is the specific move this rule forbids; see the pause-and-prompt procedure above.
+
+### Build and deploy isolation
+
+Production artifact builds run on a separate CI runner or account before deployment credentials are acquired. Repository build code and dependencies must have no deployment credentials, author/reviewer PATs, or filesystem access to the operator's credential-manager files and preflight caches, including through host mounts. Unsetting variables in a same-user shell or restricting cache-file permissions does not establish this isolation.
+
+Publish an immutable artifact with a digest and attestation bound to the intended repository and full source revision. Trusted post-build tooling verifies that binding and artifact integrity before acquiring deployment credentials, then deploys the verified artifact without rebuilding or executing the candidate checkout. Each repository owns its artifact format, verification implementation and platform-specific deploy adapter.
+
+Acquire each deployment credential only after successful build and artifact verification, and inject it only into the subprocess that consumes it. Author/reviewer PATs are not deployment credentials and must not be injected into build or deploy subprocesses. Credential preflight belongs in trusted post-build tooling; review/all-mode credential loading is not a build or deployment step. Retain the repository's approved authentication model and fail closed on failed build, verification or credential acquisition.
+
+Before marking a consumer migrated, exercise its real build and use fake credentials to prove both environment absence and denied filesystem/cache reachability. Verify credential acquisition occurs after build completion and each credential reaches only its intended subprocess. Shared guidance alone is not evidence that a consumer's adapter satisfies this boundary.
 
 ## Mutating MCP tool calls need explicit confirmation
 
@@ -146,6 +171,19 @@ Which issue to act on:
 
 The rollup is per-repo: the workflow runs in the repository it is installed in and opens its issues there. Cross-repo aggregation is an explicit non-goal; the per-repo design preserves operator focus on the repo whose context they are currently in.
 
+## End of session: no pull request left on an unanswered verdict
+
+Measured in the hub (nathanjohnpayne/mergepath#2165): across the fourteen most recently merged multi-commit pull requests, 57% of created-to-merged wall-clock was idle gaps of ninety minutes or more, and every gap between nine and thirteen and a half hours began with a reviewer verdict — a Codex or CodeRabbit review, or a reviewer-identity comment — that no session was alive to act on. The verdict was ready within minutes; the pull request then waited for someone to open a session. The review loop itself is fast when a session is driving it; the cost is the session ending with the ball in the agent's court.
+
+A session therefore does not end with a pull request in either of these states unless it has posted a handoff:
+
+- the pull request's newest event is a verdict — a bot review, a bot verdict comment, a reviewer-identity review or comment, or a human reply — with no push, reply or review request after it; or
+- the pull request's head is CI-green, approved and unmerged.
+
+Finish the round instead: fix or rebut the findings and push, request the next review, or run the pre-merge gates and merge, in the order `REVIEW_POLICY.md` § Workflow prescribes. When the round genuinely cannot be finished in the session — the fix needs a human decision, the external reviewer has not answered, or the session has hit a capability ceiling — post a pull-request comment that names the next action and the identity expected to take it, and carries the tag `[mergepath-handoff]` on its own line so tooling can recognize it. The Phase 4b handoff (the `## External Review Required` comment) and the local-agent handback (`<!-- mergepath-handback: … -->`) already count as handoffs; the `human-hold`, `needs-human-review` and `policy-violation` labels already count as a human stop.
+
+A pull request with no handoff is fair game for any later session, including a scheduled resume routine, to pick up and continue from its newest event; a pull request with a handoff is left to the identity the handoff names. A handoff stays in force for as long as its marker is on the pull request, whatever happens after it; no later push, review or comment clears it. The identity it names clears it when the round is taken back, by editing or deleting the handoff comment so it no longer carries the marker. This rule is about the state a session leaves behind, not about who caused the wait: a session that is waiting on CI or on a requested review may end, because a machine acts next; a session that is holding an answered-for verdict may not.
+
 ## Link the issue a pull request resolves
 
 When a pull request resolves an issue, its body names that issue with a closing keyword: `Closes #N` on its own line, one line per issue, or `Closes OWNER/REPO#N` for an issue in another repository (the same qualification applies to `Refs`). An issue number in the title, a `(#N)` suffix, or `Refs #N` mentions the issue without linking it. GitHub honors a closing keyword only when the pull request targets the repository's default branch; for a pull request into any other branch the keyword links nothing, so move the issue between lanes by hand.
@@ -153,6 +191,8 @@ When a pull request resolves an issue, its body names that issue with a closing 
 The link is what moves the issue on the repository's Project board. The board's *Pull request linked to issue* workflow moves the issue to `In review` when the pull request opens, and the merge closes it, which moves it to `Done`. Without the link the issue sits in `Ready` or `In progress` through the whole review and has to be closed by hand.
 
 Use `Refs #N` instead when the pull request is only part of the work, so the merge does not close an issue that still has work left; move that issue between lanes by hand. What each lane means, and which moves are manual: `scripts/gh-projects/README.md` § Status lanes.
+
+One issue, one open pull request. `scripts/gh-as-author.sh -- gh pr create` refuses to open a pull request whose body links an issue that another open pull request in the same repository already links with any of those keywords, and names that pull request (exit `7`). Two sessions implementing one issue, discovered only by a merge conflict, is the failure it catches (nathanjohnpayne/mergepath#2562). When the second pull request is a deliberate split or a stacked tranche, name the first in `GH_AS_AUTHOR_ALLOW_DUPLICATE_LINK=<number>` and say so in the body; an open-PR list the wrapper cannot read refuses rather than passes. The check sees only open pull requests, so before starting on an issue read its newest comments and any open linked pull request, and leave a one-line claim through the reviewer wrapper, `<!-- mergepath-claim: <agent> <YYYY-MM-DD> -->` on its own line, so a session arriving in the window before your pull request exists sees who holds it; do not start on an issue whose newest claim is another identity's while that identity's pull request is still open or its claim is less than a day old.
 
 ## PR and issue titles/descriptions: describe the work, not the session
 
@@ -166,3 +206,7 @@ Titles and descriptions — for both pull requests and issues — must describe 
 - Exactly one annotation is exempt *outside* that heading, because the same document requires it to stay where the criterion is rather than move under the record: an acceptance criterion the change discarded is struck in place, keeping its checkbox, with the dated reason appended — `- [ ] ~~<criterion>~~ — Discarded YYYY-MM-DD: <reason>`. It qualifies on the same terms and for the same reason as the heading does: a cold reader needs it to tell a criterion dropped for cause from one that was never asked for, and deleting the criterion instead would make it look as though nobody ever asked. It is exempt only when a path record was triggered in the first place, and it does not license any other dated session note in the criteria list.
 
 This is advisory guidance for judgment, not a `repo_lint`/CI gate — the narration-vs-rationale distinction is not reliably lintable, and a reviewer (human or bot) should apply it as judgment rather than minting false-positive findings from words like "originally" or "instead." See nathanjohnpayne/mergepath#654, and nathanjohnpayne/mergepath#788 for the carve-out above.
+
+## CodeRabbit rate-limit substitution
+
+When CodeRabbit is rate-limited, request Codex immediately through the canonical requester rather than waiting out the provider window. A request grants no clearance: under-threshold approval requires a completed exact-head Codex review or affirmative verdict with required findings handled, and records the provider substitution and full SHA. Phase 4 keeps its usual independent-review and escalation gates; [mergepath#2120](https://github.com/nathanjohnpayne/mergepath/issues/2120) permits its adapter review after a bare CodeRabbit refusal. If Codex is unavailable too, alert the human. See `REVIEW_POLICY.md` § Rate-limit → Codex failover and [mergepath#2139](https://github.com/nathanjohnpayne/mergepath/issues/2139) for the full workflow.

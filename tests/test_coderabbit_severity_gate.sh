@@ -510,6 +510,110 @@ REFACTOR_BODY="**🛠️ Refactor suggestion**
 
 Extract this into a helper."
 
+# #2804: exercise publication metadata through the real gate and fake gh.
+# Keep this focused mode ahead of the legacy cases for bounded mutation runs.
+test_batch_continuations() {
+  local scratch pr comments threads reviews base marker root continuation out rc
+  scratch=$(make_scratch_with_config true)
+  pr=$(make_pr_fixture "$HEAD_SHA")
+  comments=$(make_comments_fixture '[]')
+  threads=$(make_threads_fixture '[]')
+  marker='<!-- coderabbit-review-publication v1 publication=69d54167-7071-4e27-9a82-4079dcd03f7d attempt=b738a69a-09d7-4b7b-9e6b-220e260b06f9 batch='
+  # The vendor header makes this use own-commits-range, as the real report did.
+  root="<!-- coderabbit-ai-generated:v1 -->
+
+<details><summary>📥 Commits</summary>
+
+Reviewing files that changed between 1111111111111111111111111111111111111111 and $HEAD_SHA.
+
+</details>
+
+${marker}1/2 -->"
+  continuation="<!-- coderabbit-ai-generated:v1 -->
+
+**Review continued from previous batch...**
+
+${marker}2/2 -->"
+  base=$(jq -cn --arg sha "$HEAD_SHA" --arg root "$root" --arg continuation "$continuation" '
+    [{id: 8001, body: $root, submitted_at: "2026-10-26T22:29:13Z"},
+     {id: 8002, body: $continuation, submitted_at: "2026-10-26T22:30:17Z"}]
+    | map(. + {user: {login: "coderabbitai[bot]"}, commit_id: $sha, state: "COMMENTED"})')
+  batch_case() {
+    local label=$1 expected=$2 transform=$3 inline=${4:-false} diagnostic=${5:-}
+    reviews="$WORKDIR/batch-reviews.json"
+    jq -c "$transform" <<<"$base" > "$reviews"
+    if [ "$inline" = true ]; then
+      comments=$(make_single_comment_fixture "$HEAD_SHA" "$MAJOR_BODY")
+      threads=$(make_threads_fixture '[{isResolved:false, comment_ids:[2001]}]')
+    else
+      comments=$(make_comments_fixture '[]')
+      threads=$(make_threads_fixture '[]')
+    fi
+    rc=0
+    out=$(FIXTURE_PR="$pr" FIXTURE_COMMENTS="$comments" FIXTURE_THREADS="$threads" \
+      FIXTURE_ISSUE_COMMENTS='' FIXTURE_REVIEWS="$reviews" REQUIRE_REVIEW_SUMMARY=true \
+      run_gate "$scratch" 99 owner/repo 2>&1) || rc=$?
+    if [ "$rc" = "$expected" ] && { [ -z "$diagnostic" ] || grep -q "$diagnostic" <<<"$out"; }; then
+      pass "#2804: $label → exit $expected"
+    else
+      fail "#2804: $label expected exit $expected/$diagnostic, got $rc"
+      printf '%s\n' "$out" >&2
+    fi
+  }
+  batch_case 'complete metadata keeps root report' 0 '.' false 'recognised by: own-commits-range'
+  batch_case 'root-only legacy acceptance stays unchanged' 0 '[.[0]]'
+  batch_case 'root summary Major remains blocking' 1 '.[0].body += "\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives."' false 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'unresolved inline Major remains blocking' 1 '.' true 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'continuation without root stays unread' 3 '[.[1]]'
+  batch_case 'incomplete publication stays unread' 3 'map(.body |= sub("/2 -->"; "/3 -->"))'
+  batch_case 'mismatched attempt stays unread' 3 '.[1].body |= sub("b738a69a"; "c738a69a")'
+  batch_case 'mismatched publication stays unread' 3 '.[1].body |= sub("69d54167"; "79d54167")'
+  batch_case 'mismatched total stays unread' 3 '.[1].body |= sub("2/2"; "2/3")'
+  batch_case 'duplicate ordinal stays unread' 3 '. + [.[1] + {id: 8003}]'
+  batch_case 'malformed ordinal stays unread' 3 '.[1].body |= sub("2/2"; "02/2")'
+  batch_case 'extra continuation prose stays unread' 3 '.[1].body += "\nUnread finding text."'
+  batch_case 'other-head root cannot pair' 3 '.[0].commit_id = "1111111111111111111111111111111111111111"'
+  batch_case 'other-provider root cannot pair' 3 '.[0].user.login = "other[bot]"'
+  batch_case 'later unknown review still holds' 3 '. + [.[1] + {id: 8003, body: "Unknown next report", submitted_at: "2026-10-26T22:31:00Z"}]'
+  batch_case 'dismissed publication retains root report' 0 'map(.state = "DISMISSED")'
+  batch_case 'later same-head report retains supersession' 0 '.[0].body += "\n\n**⚠️ Potential issue** | **Major**\nEarlier finding." | . + [.[1] + {id: 8003, body: "**Actionable comments posted: 0**", submitted_at: "2026-10-26T22:31:00Z"}]'
+  batch_case 'tainted own-range continuation cannot erase root Major' 1 '.[0].body += "\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives." | .[1].body += ("\n\nReviewing files that changed between 1111111111111111111111111111111111111111 and " + .[0].commit_id + ".")' false 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'tainted own-range continuation with clean root stays unread' 3 '.[1].body += ("\n\nReviewing files that changed between 1111111111111111111111111111111111111111 and " + .[0].commit_id + ".")'
+  batch_case 'result-line continuation cannot erase root Major' 1 '.[0].body += "\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives." | .[1].body = "**Actionable comments posted: 0**\n\n" + .[1].body' false 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'result-line continuation with clean root stays unread' 3 '.[1].body = "**Actionable comments posted: 0**\n\n" + .[1].body'
+  batch_case 'malformed ordinal cannot escape into own-range acceptor' 3 '.[1].body |= sub("2/2"; "02/2") | .[1].body += ("\n\nReviewing files that changed between 1111111111111111111111111111111111111111 and " + .[0].commit_id + ".")'
+  batch_case 'missing continuation notice cannot escape into result-line acceptor' 3 '.[1].body = "**Actionable comments posted: 0**\n\n" + (.[1].body | split("**Review continued from previous batch...**") | join(""))'
+  batch_case 'malformed metadata without notice cannot escape into result-line acceptor' 3 '.[1].body = "**Actionable comments posted: 0**\n\n<!-- coderabbit-review-publication v1 batch=oops -->"'
+  batch_case 'genuine root quoting continuation forms remains readable' 1 '.[0].body += "\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives.\n\n```\n**Review continued from previous batch...**\n<!-- coderabbit-review-publication v1 batch=2/2 -->\n```" | [.[0]]' false 'CodeRabbit blocking-tier unresolved: 1'
+  CR_GATE_TEST_FAIL_AWK_PROGRAM='NR, line' batch_case 'unread continuation intent refuses infrastructure decision' 2 '.' false 'could not READ CodeRabbit continuation intent'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'fenced marker example preserves clean batched root' 0 '.[0].body += ("\n\n```\n" + .[1].body + "\n```")'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'fenced marker example preserves root Major' 1 '.[0].body += ("\n\n```\n" + .[1].body + "\n```\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives.")' false 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'blockquote marker example preserves clean root' 0 '.[0].body += ("\n\n> " + (.[1].body | split("\n") | join("\n> ")))'
+  batch_case 'blockquote marker example preserves root Major' 1 '.[0].body += ("\n\n> " + (.[1].body | split("\n") | join("\n> ")) + "\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives.")' false 'CodeRabbit blocking-tier unresolved: 1'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'inline code marker example preserves clean root' 0 '.[0].body += ("\n\nThe marker is `" + (.[1].body | split("\n") | last) + "`.")'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'inline code marker example preserves root Major' 1 '.[0].body += ("\n\nThe marker is `" + (.[1].body | split("\n") | last) + "`.\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives.")' false 'CodeRabbit blocking-tier unresolved: 1'
+  batch_case 'blockquote notice preserves clean root' 0 '.[0].body += "\n\n> **Review continued from previous batch...**"'
+  batch_case 'blockquote notice preserves root Major' 1 '.[0].body += "\n\n> **Review continued from previous batch...**\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives."' false 'CodeRabbit blocking-tier unresolved: 1'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'inline code notice preserves clean root' 0 '.[0].body += "\n\n`**Review continued from previous batch...**`"'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'inline code notice preserves root Major' 1 '.[0].body += "\n\n`**Review continued from previous batch...**`\n\n**⚠️ Potential issue** | **Major**\nRoot finding survives."' false 'CodeRabbit blocking-tier unresolved: 1'
+  # shellcheck disable=SC2016 # Preserve literal Markdown backticks in this jq fixture.
+  batch_case 'extra fenced continuation payload stays unread' 3 '.[1].body += "\n\n```\nA quoted payload is still extra continuation data.\n```"'
+  batch_case 'extra blockquoted continuation payload stays unread' 3 '.[1].body += "\n\n> A quoted payload is still extra continuation data."'
+  unset -f batch_case
+}
+test_batch_continuations
+if [ "${1:-}" = --batch-continuations-only ]; then
+  printf 'batch continuations: %s passed, %s failed\n' "$PASS" "$FAIL"
+  [ "$FAIL" -eq 0 ]
+  exit $?
+fi
+
 # ---------------------------------------------------------------------------
 # Test 1: Gate disabled — exit 0, no API calls.
 # ---------------------------------------------------------------------------
@@ -521,7 +625,7 @@ set +e
 OUT=$(run_gate "$SCRATCH" 99 owner/repo 2>&1)
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
     && ! grep -q "^gh" "$WORKDIR/gh-calls.log"; then
   pass "gate disabled exits 0 with no API calls"
 else
@@ -544,7 +648,7 @@ set +e
 OUT=$(run_gate "$SCRATCH" 99 owner/repo 2>&1)
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
     && ! grep -q "^gh" "$WORKDIR/gh-calls.log"; then
   pass "single-quoted enabled: 'false' parses as disabled (exits 0)"
 else
@@ -565,7 +669,7 @@ OUT=$( cd "$SCRATCH" && PATH="$STUB_DIR:$PATH" GH_CALLS_LOG="$WORKDIR/gh-calls.l
   env -u GH_TOKEN -u PR_NUMBER -u REPO "$SCRIPT" 2>&1 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
     && ! grep -q "^gh" "$WORKDIR/gh-calls.log"; then
   pass "disabled gate + no env → exit 0 clean pass (no PR_NUMBER/GH_TOKEN error, no gh calls)"
 else
@@ -581,7 +685,7 @@ OUT=$( cd "$SCRATCH" && PATH="$STUB_DIR:$PATH" \
   env -u GH_TOKEN -u PR_NUMBER -u REPO "$SCRIPT" 2>&1 )
 RC=$?
 set -e
-if [ "$RC" = 2 ] && echo "$OUT" | grep -q "PR_NUMBER required"; then
+if [ "$RC" = 2 ] && grep -q "PR_NUMBER required" <<<"$OUT"; then
   pass "control: enabled gate + no env → exit 2 (env still required when enabled)"
 else
   fail "control: expected rc=2 + 'PR_NUMBER required'; got rc=$RC, output:"
@@ -606,7 +710,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "no findings → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -631,7 +735,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "⚠️ Major + resolved → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -656,8 +760,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] src/foo.ts:42" <<<"$OUT"; then
   pass "⚠️ Major + unresolved → exit 1 with path listed"
 else
   fail "expected rc=1 with 'unresolved: 1' + [P1] path; got rc=$RC"
@@ -683,7 +787,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "finding on stale SHA → out of scope, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -708,7 +812,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "⚠️ body from human → ignored, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -726,7 +830,7 @@ set +e
 OUT=$(run_gate "$SCRATCH" 99 owner/repo 2>&1)
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "missing severity_gate block → defaults to disabled → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -743,7 +847,7 @@ set +e
 OUT=$(run_gate "$SCRATCH" "not-a-number" owner/repo 2>&1)
 RC=$?
 set -e
-if [ "$RC" = 2 ] && echo "$OUT" | grep -qi "PR_NUMBER must be an integer"; then
+if [ "$RC" = 2 ] && grep -qi "PR_NUMBER must be an integer" <<<"$OUT"; then
   pass "malformed PR_NUMBER → exit 2"
 else
   fail "expected rc=2 with PR_NUMBER error; got rc=$RC"
@@ -775,8 +879,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "src/foo.ts:42" <<<"$OUT"; then
   pass ">100 threads → page 2 paginated, unresolved → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' + path (page-2 pagination); got rc=$RC"
@@ -808,8 +912,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "src/foo.ts:42" <<<"$OUT"; then
   pass ">100 comments → nested page 2 paginated, id caught, unresolved → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' + path (nested pagination); got rc=$RC"
@@ -840,7 +944,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "env-only PR_NUMBER + REPO → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -881,7 +985,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "nitpick discretionary → unresolved 🧹 Nitpick out of scope → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' (nitpick ∉ {p0,p1}); got rc=$RC"
@@ -916,8 +1020,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[NITPICK\] src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[NITPICK\] src/foo.ts:42" <<<"$OUT"; then
   pass "nitpick required → unresolved 🧹 Nitpick → exit 1, listed as [NITPICK]"
 else
   fail "expected rc=1 with 'unresolved: 1' + [NITPICK] path; got rc=$RC"
@@ -946,8 +1050,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] src/foo.ts:42" <<<"$OUT"; then
   pass "p1 required → unresolved ⚠️ Potential issue → exit 1, listed as [P1]"
 else
   fail "expected rc=1 with 'unresolved: 1' + [P1] path; got rc=$RC"
@@ -973,7 +1077,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "p2 discretionary → unresolved Refactor suggestion out of scope → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' (p2 ∉ {p0,p1}); got rc=$RC"
@@ -1028,7 +1132,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -qi "nitpick.*required.*chill\|chill profile suppresses"; then
+if [ "$RC" = 0 ] && grep -qi "nitpick.*required.*chill\|chill profile suppresses" <<<"$OUT"; then
   pass "nitpick required + chill → warning emitted (gate still exits 0)"
 else
   fail "expected rc=0 + a nitpick/chill no-op warning; got rc=$RC"
@@ -1054,7 +1158,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -qi "chill profile suppresses"; then
+if [ "$RC" = 0 ] && ! grep -qi "chill profile suppresses" <<<"$OUT"; then
   pass "nitpick required + assertive → no no-op warning"
 else
   fail "expected rc=0 with NO nitpick/chill warning; got rc=$RC"
@@ -1081,7 +1185,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -qi "chill profile suppresses"; then
+if [ "$RC" = 0 ] && ! grep -qi "chill profile suppresses" <<<"$OUT"; then
   pass "nitpick discretionary + chill → no warning (claim not made)"
 else
   fail "expected rc=0 with NO nitpick/chill warning; got rc=$RC"
@@ -1225,10 +1329,10 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && echo "$OUT" | grep -q "mergepath-summary-ack: $HEAD_SHA" \
-    && ! echo "$OUT" | grep -q "Resolve each inline thread"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && grep -q "mergepath-summary-ack: $HEAD_SHA" <<<"$OUT" \
+    && ! grep -q "Resolve each inline thread" <<<"$OUT"; then
   # The negative conjunct is the CodeRabbit finding on #886: with no inline
   # finding there is no thread to resolve, and printing an instruction the
   # reader cannot act on is worse than printing nothing. Test 29 covers the
@@ -1238,6 +1342,56 @@ else
   fail "expected rc=1 with 'unresolved: 1' + summary path + ack token + no inline instruction; got rc=$RC"
   echo "$OUT" | sed 's/^/      /' >&2
 fi
+
+# ---------------------------------------------------------------------------
+# Test 18v (#2734): the same summary behind CodeRabbit's invisible vendor
+# header. CodeRabbit now opens every comment with
+# `<!-- coderabbit-ai-generated:v1 -->`, so the byte-zero selection found no
+# summary, and this finding fell out of scope: exit 0, a false clear. Two
+# controls pin the rule to the FIRST line only: a header after content, and a
+# header followed by content on its own line, are not framing, so neither body
+# is selected and nothing is graded.
+# ---------------------------------------------------------------------------
+echo
+echo "--- Test 18v (#2734): vendor-headered summary-only blocking finding → exit 1"
+VENDOR_HEADER='<!-- coderabbit-ai-generated:v1 -->'
+for shape in first-line after-content same-line; do
+  case "$shape" in
+    first-line)    prefix="$VENDOR_HEADER"$'\n\n' ;;
+    after-content) prefix=$'Analysis chain\n'"$VENDOR_HEADER"$'\n\n' ;;
+    same-line)     prefix="$VENDOR_HEADER"$' quoted\n\n' ;;
+  esac
+  SCRATCH=$(make_scratch_with_policy "$DEFAULT_POLICY")
+  FIXTURE_PR=$(make_pr_fixture "$HEAD_SHA")
+  FIXTURE_COMMENTS=$(make_comments_fixture '[]')
+  FIXTURE_THREADS=$(make_threads_fixture '[]')
+  FIXTURE_ISSUE_COMMENTS=$(make_summary_issue_comments \
+    "$prefix$(make_summary_body "$HEAD_SHA" "$SUMMARY_BLOCKING_FINDING")")
+  set +e
+  OUT=$(
+    FIXTURE_PR="$FIXTURE_PR" \
+    FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+    FIXTURE_THREADS="$FIXTURE_THREADS" \
+    FIXTURE_ISSUE_COMMENTS="$FIXTURE_ISSUE_COMMENTS" \
+      run_gate "$SCRATCH" 99 owner/repo 2>&1
+  )
+  RC=$?
+  set -e
+  if [ "$shape" = first-line ]; then
+    if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+        && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT"; then
+      pass "#2734: a summary behind the vendor header is in scope and its blocking finding gates"
+    else
+      fail "#2734 headered summary: expected rc=1 + 'unresolved: 1' + summary path; got rc=$RC"
+      echo "$OUT" | sed 's/^/      /' >&2
+    fi
+  elif [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
+    pass "#2734 control ($shape): a header that is not the whole first line is not framing, so the body is not the summary"
+  else
+    fail "#2734 control ($shape): expected rc=0 + 'unresolved: 0'; got rc=$RC"
+    echo "$OUT" | sed 's/^/      /' >&2
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Test 19 (#832): a summary-only NON-blocking finding (🧹 Nitpick, discretionary
@@ -1262,7 +1416,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "summary-only nitpick under a discretionary policy → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -1283,7 +1437,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "\[NITPICK\] (PR-level summary comment)"; then
+if [ "$RC" = 1 ] && grep -q "\[NITPICK\] (PR-level summary comment)" <<<"$OUT"; then
   pass "control: nitpick required → the same summary finding gates → exit 1"
 else
   fail "control: expected rc=1 + [NITPICK] summary listing; got rc=$RC"
@@ -1314,8 +1468,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -q "does not name $HEAD_SHA"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -q "does not name $HEAD_SHA" <<<"$OUT"; then
   pass "summary pinned to another head → out of scope, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' + a head-pin log line; got rc=$RC"
@@ -1341,7 +1495,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "head as range START (not END) → out of scope, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' (range END is the anchor); got rc=$RC"
@@ -1370,8 +1524,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -qi "non-benign outcome stanza"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -qi "non-benign outcome stanza" <<<"$OUT"; then
   pass "non-benign stanza → not a completed report, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' + a non-benign-stanza log line; got rc=$RC"
@@ -1402,7 +1556,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "pre-merge check-table ⚠️ stripped → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' (check-table row is not a finding); got rc=$RC"
@@ -1428,7 +1582,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "human-authored summary-shaped comment → ignored, exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' (must be bot-authored); got rc=$RC"
@@ -1500,8 +1654,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -qi "acknowledged for $HEAD_SHA"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -qi "acknowledged for $HEAD_SHA" <<<"$OUT"; then
   pass "collaborator ack pinned to this head → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' + an ack log line; got rc=$RC"
@@ -1531,7 +1685,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "ack for a different sha → still gates, exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (ack is head-pinned); got rc=$RC"
@@ -1562,7 +1716,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "ack from a non-collaborator → still gates, exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (association must be OWNER/MEMBER/COLLABORATOR); got rc=$RC"
@@ -1593,7 +1747,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "ack from a [bot] account → still gates, exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (bot accounts cannot ack); got rc=$RC"
@@ -1619,7 +1773,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 2 ] && echo "$OUT" | grep -qi "failed to fetch PR-level issue comments"; then
+if [ "$RC" = 2 ] && grep -qi "failed to fetch PR-level issue comments" <<<"$OUT"; then
   pass "unreadable issues endpoint → exit 2 (fail closed)"
 else
   fail "expected rc=2 + a fetch-failure message; got rc=$RC"
@@ -1662,8 +1816,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && ! echo "$OUT" | grep -qi "failed to flatten PR-level issue comments"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && ! grep -qi "failed to flatten PR-level issue comments" <<<"$OUT"; then
   pass "#1008: benign gh stderr on a successful read does not become a flatten failure"
 else
   fail "expected rc=1 with 'unresolved: 1' and no flatten error; got rc=$RC"
@@ -1692,9 +1846,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 2" \
-    && echo "$OUT" | grep -q "\[P1\] src/foo.ts:42" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 2" <<<"$OUT" \
+    && grep -q "\[P1\] src/foo.ts:42" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT"; then
   pass "inline unresolved + summary-only → 2 findings, both listed"
 else
   fail "expected rc=1 with 'unresolved: 2' + both listings; got rc=$RC"
@@ -1712,9 +1866,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "src/foo.ts:42"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "src/foo.ts:42" <<<"$OUT"; then
   pass "resolved inline thread drops out; the summary finding remains → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' + summary listing only; got rc=$RC"
@@ -1761,8 +1915,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 2" \
-    && echo "$OUT" | grep -q "credential is logged"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 2" <<<"$OUT" \
+    && grep -q "credential is logged" <<<"$OUT"; then
   pass "stale-finding-set ack does not clear a rewritten summary → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 2' + the new finding listed; got rc=$RC"
@@ -1795,7 +1949,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
     && [ "$NEW_ACK_TOKEN" != "$ACK_TOKEN" ]; then
   pass "ack regenerated for the new finding set clears it → exit 0"
 else
@@ -1830,7 +1984,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "quoted failure output does not ack → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (a quote is not an ack); got rc=$RC"
@@ -1875,7 +2029,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "token not leading the comment → not an ack, exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (the token must lead the comment); got rc=$RC"
@@ -1907,7 +2061,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 2"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 2" <<<"$OUT"; then
   pass "ack predating the finding set it would clear → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 2'; got rc=$RC"
@@ -1981,7 +2135,7 @@ OUT=$(
 RC=$?
 set -e
 SPLIT_ACK_TOKEN_B=$(extract_ack_token "$OUT")
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
     && [ -n "$SPLIT_ACK_TOKEN_A" ] && [ "$SPLIT_ACK_TOKEN_A" != "$SPLIT_ACK_TOKEN_B" ]; then
   pass "same-header finding swap changes the token; A's ack does not clear B → exit 1"
 else
@@ -2014,7 +2168,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "ack regenerated for the replacement finding clears it → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -2051,7 +2205,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "author-controlled echo of a stanza marker does not suppress the summary → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2080,8 +2234,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -q "non-benign outcome stanza"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -q "non-benign outcome stanza" <<<"$OUT"; then
   pass "a real rate-limit stanza still suppresses the summary → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' and the non-benign log line; got rc=$RC"
@@ -2117,7 +2271,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "benign stanzas with closers still classify as a report → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2157,7 +2311,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "a newer marker-quoting reply does not shadow the real summary → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2257,7 +2411,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "token with only blank lines under it is not an ack → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2302,7 +2456,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "a quoted start delimiter does not extend the strip over a real finding → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (the finding must survive the strip); got rc=$RC"
@@ -2339,7 +2493,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "the real pre-merge table is still stripped → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -2368,9 +2522,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "(PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "Resolve each inline thread"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "(PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "Resolve each inline thread" <<<"$OUT"; then
   pass "resolved inline candidate does not resurrect the inline instruction → exit 1"
 else
   fail "expected rc=1, the summary finding listed, and no inline instruction; got rc=$RC"
@@ -2411,7 +2565,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "a tilde-fenced stanza quote does not suppress the summary → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2453,7 +2607,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "a longer fence is not closed by a shorter inner one → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2490,8 +2644,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -q "does not name $HEAD_SHA as its commits-range end"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -q "does not name $HEAD_SHA as its commits-range end" <<<"$OUT"; then
   pass "a fenced range quote is not CodeRabbit's commits row → out of scope, exit 0"
 else
   fail "expected rc=0 with the out-of-scope log line; got rc=$RC"
@@ -2517,7 +2671,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "the real commits row still brings the summary into scope → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2551,8 +2705,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "neither sha256sum nor shasum"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "neither sha256sum nor shasum" <<<"$OUT"; then
   pass "an unused hashing dependency does not redden a clean gate → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0' and no hasher error; got rc=$RC"
@@ -2586,7 +2740,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "an invalid backtick opener does not hide the commits range → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1' (the summary must stay in scope); got rc=$RC"
@@ -2618,7 +2772,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "a tilde fence with a backticked info string still fences its contents → exit 1"
 else
   fail "expected rc=1 with 'unresolved: 1'; got rc=$RC"
@@ -2651,7 +2805,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "does not name $HEAD_SHA as its commits-range end"; then
+if [ "$RC" = 0 ] && grep -q "does not name $HEAD_SHA as its commits-range end" <<<"$OUT"; then
   pass "an abbreviated range end cannot identify this head → out of scope, exit 0"
 else
   fail "expected rc=0 with the out-of-scope log line; got rc=$RC"
@@ -2678,7 +2832,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "does not name $HEAD_SHA as its commits-range end"; then
+if [ "$RC" = 0 ] && grep -q "does not name $HEAD_SHA as its commits-range end" <<<"$OUT"; then
   pass "a different abbreviated sha stays out of scope → exit 0"
 else
   fail "expected rc=0 with the out-of-scope log line; got rc=$RC"
@@ -2714,7 +2868,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "a fenced quote of a finding marker does not manufacture a finding → exit 0"
 else
   fail "expected rc=0 with 'unresolved: 0'; got rc=$RC"
@@ -2754,7 +2908,7 @@ set -e
 # the NUMBER, not just the count, is what pins that original line numbers
 # survive the filter — a count-only assertion passes either way.
 REPORTED_LINE=$(echo "$OUT" | sed -n 's/.*(PR-level summary comment):\([0-9]*\).*/\1/p' | head -1)
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
     && [ "${REPORTED_LINE:-0}" -eq 14 ]; then
   pass "an unfenced finding below a fence gates, reported at its true line $REPORTED_LINE"
 else
@@ -2791,8 +2945,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "markerless full-review summary"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "markerless full-review summary" <<<"$OUT"; then
   pass "markerless full-review finding is gated when a CodeRabbit review object anchors HEAD"
 else
   fail "expected rc=1 with a markerless exact-head review-object anchor; got rc=$RC"
@@ -2812,7 +2966,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "has no timestamped completed CodeRabbit review object"; then
+if [ "$RC" = 0 ] && grep -q "has no timestamped completed CodeRabbit review object" <<<"$OUT"; then
   pass "markerless body without a current-head review object remains out of scope"
 else
   fail "expected rc=0 with markerless summary rejected without head review; got rc=$RC"
@@ -2838,7 +2992,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "predates completed CodeRabbit review object"; then
+if [ "$RC" = 0 ] && grep -q "predates completed CodeRabbit review object" <<<"$OUT"; then
   pass "markerless body that predates its exact-head review object remains out of scope"
 else
   fail "expected rc=0 with markerless summary rejected as stale; got rc=$RC"
@@ -2874,8 +3028,8 @@ set -e
 # The run id is asserted too: the hold's remaining case is an UNRECOGNISED body,
 # so the operator has to be told which object was not recognised or the message
 # is unactionable.
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "awaiting its PR-level summary" \
-    && echo "$OUT" | grep -q "review run object(s): 8001"; then
+if [ "$RC" = 3 ] && grep -q "awaiting its PR-level summary" <<<"$OUT" \
+    && grep -q "review run object(s): 8001" <<<"$OUT"; then
   pass "a run whose serialization no acceptor recognises holds the run, naming the object"
 else
   fail "expected rc=3 naming the unrecognised run object; got rc=$RC"
@@ -2902,8 +3056,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "comment id 2001" \
-    && echo "$OUT" | grep -q "blocking-tier unresolved: 1"; then
+if [ "$RC" = 1 ] && grep -q "comment id 2001" <<<"$OUT" \
+    && grep -q "blocking-tier unresolved: 1" <<<"$OUT"; then
   pass "an unresolved known inline finding remains a failure despite the unrecognised run"
 else
   fail "expected unresolved inline finding plus unrecognised run to exit 1; got rc=$RC"
@@ -2923,8 +3077,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "later review run" \
-    && echo "$OUT" | grep -q "blocking-tier unresolved: pending"; then
+if [ "$RC" = 3 ] && grep -q "later review run" <<<"$OUT" \
+    && grep -q "blocking-tier unresolved: pending" <<<"$OUT"; then
   pass "a resolved inline candidate still withholds the clean verdict for the unrecognised run"
 else
   fail "expected resolved inline candidate plus unrecognised run to exit 3; got rc=$RC"
@@ -2981,7 +3135,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 0 ] && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "the hold needs an anchor: no current-head review means no hold, flag or not"
 else
   fail "expected rc=0 with the flag set and no current-head review; got rc=$RC"
@@ -3000,11 +3154,12 @@ SWEEP_JOB=$(awk '
 ' "$ROOT/.github/workflows/coderabbit-severity-gate.yml")
 if grep -Fq 'REQUIRE_REVIEW_SUMMARY: "true"' <<<"$SWEEP_JOB" \
     && grep -Fq 'if [ "$rc" -eq 3 ]; then' "$ROOT/.github/workflows/coderabbit-severity-gate.yml" \
-    && grep -Fq "skipping this publication so the review run's verdict stands" "$ROOT/.github/workflows/coderabbit-severity-gate.yml" \
+    && grep -Fq '3) conclusion="failure" ;;' <<<"$SWEEP_JOB" \
+    && grep -Fq 'rcg_close "$REPO"' <<<"$SWEEP_JOB" \
     && grep -Fq "holding this run non-green until it does" "$ROOT/.github/workflows/coderabbit-severity-gate.yml"; then
-  pass "the sweep opts into the hold and skips publication; the event-driven job goes non-green"
+  pass "the sweep closes only its owned hold red; the event-driven job goes non-green"
 else
-  fail "expected the sweep to set REQUIRE_REVIEW_SUMMARY and skip on rc 3, and the event job to fail on it"
+  fail "expected both publishers to retain the rc-3 evidence hold without a clean verdict"
 fi
 
 # A CodeRabbit conversational REPLY creates a head-pinned COMMENTED review
@@ -3033,7 +3188,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 0 ] && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "a reply-carrier review object cannot push the floor past the genuine summary"
 else
   fail "expected rc=0 with the summary still correlated to the real run; got rc=$RC"
@@ -3068,9 +3223,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -q "predate the completed CodeRabbit review object" \
-    && echo "$OUT" | grep -q "markerless full-review summary in review object 8001"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -q "predate the completed CodeRabbit review object" <<<"$OUT" \
+    && grep -q "markerless full-review summary in review object 8001" <<<"$OUT"; then
   pass "a marker-led summary from the previous publication is dropped for the current run's own"
 else
   fail "expected rc=0 with the uncorrelated marker summary dropped; got rc=$RC"
@@ -3095,8 +3250,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "a marker-led summary correlated to the triggering review still clears the run"
 else
   fail "expected rc=0 once the correlated summary publishes; got rc=$RC"
@@ -3122,10 +3277,10 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary" \
-    && ! echo "$OUT" | grep -q "predate the completed CodeRabbit review object"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT" \
+    && ! grep -q "predate the completed CodeRabbit review object" <<<"$OUT"; then
   pass "a correlated markerless summary is classified, not discarded, on the review-triggered path"
 else
   fail "expected rc=1 from the markerless finding rather than the publication hold; got rc=$RC"
@@ -3151,8 +3306,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT"; then
   pass "dismissing the review does not drop the anchor or clear the summary finding"
 else
   fail "expected rc=1 with the dismissed review still anchoring the summary; got rc=$RC"
@@ -3190,6 +3345,58 @@ if grep -Fq 'repos/$REPO/issues/$1/comments' <<<"$FP_FN" \
   pass "cr_surface_fp fingerprints comments, reviews, inline findings and thread state, failing closed on each read"
 else
   fail "expected cr_surface_fp to sample all four surfaces and fail closed on each read (fail-closed lines: $FP_FAILCLOSED)"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 47d1f (#2247): this gate has no pending verdict, so the event-driven
+# job fails its job-native run on every non-green exit. #2247 lets the Merge
+# clearance gate's native run conclude non-failing while external review has
+# merely not cleared yet. Neither non-green state here is that: rc 1 is an
+# unresolved blocking-tier finding, a real block; rc 3 is a current-head
+# review run this gate cannot classify, an unknown verdict. Both keep failing
+# the native run, and the step never asks the script for the pending
+# distinction. Behavioural: the step body is extracted and run.
+# ---------------------------------------------------------------------------
+echo "--- Test 47d1f (#2247): the event-driven job fails on every non-green exit"
+T2247="$WORKDIR/t2247"
+mkdir -p "$T2247/scripts"
+CR_STEP=$(awk '
+  index($0, "- name: Run scripts/coderabbit-severity-gate.sh") { instep = 1; next }
+  instep && !inrun && /^        run: \|/ { inrun = 1; next }
+  inrun {
+    if ($0 ~ /^[[:space:]]*$/) { print ""; next }
+    if ($0 !~ /^          /) exit
+    sub(/^          /, "")
+    print
+  }
+' "$ROOT/.github/workflows/coderabbit-severity-gate.yml")
+cat >"$T2247/scripts/coderabbit-severity-gate.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${MERGEPATH_GATE_VERDICT_FILE-unset}" >>"$T2247_LOG"
+[ -z "${MERGEPATH_GATE_VERDICT_FILE:-}" ] || printf 'pending\n' >"$MERGEPATH_GATE_VERDICT_FILE"
+exit "$T2247_RC"
+SH
+chmod +x "$T2247/scripts/coderabbit-severity-gate.sh"
+bad=""
+[ -n "$CR_STEP" ] || bad="$bad step-not-extracted"
+for rc in 0 1 2 3; do
+  set +e
+  ( cd "$T2247" && T2247_LOG="$T2247/log" T2247_RC="$rc" PR_NUMBER=7 REPO=o/r \
+      bash -c "$CR_STEP" >/dev/null 2>&1 )
+  got=$?
+  set -e
+  if [ "$rc" = 0 ]; then
+    [ "$got" = 0 ] || bad="$bad rc0($got)"
+  else
+    [ "$got" != 0 ] || bad="$bad rc$rc-non-failing"
+  fi
+done
+grep -qv '^unset$' "$T2247/log" && bad="$bad asked-for-pending"
+[ "$(grep -c '^unset$' "$T2247/log" || true)" = 4 ] || bad="$bad script-not-run"
+if [ -z "$bad" ]; then
+  pass "rc 1 (real block), rc 2 (infra) and rc 3 (unknown verdict) all fail the native run; the step never asks for a pending verdict"
+else
+  fail "event-driven CodeRabbit native mapping changed:$bad"
 fi
 
 # A raw C0 control byte anywhere in the workflow makes the YAML document
@@ -3231,8 +3438,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && ! echo "$OUT" | grep -q "predate the completed CodeRabbit review object"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && ! grep -q "predate the completed CodeRabbit review object" <<<"$OUT"; then
   pass "the sweep path still enforces an uncorrelated marker-led summary finding"
 else
   fail "expected rc=1 with the sweep path unaffected by the correlation floor; got rc=$RC"
@@ -3265,8 +3472,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "comment id 7002" \
-    && echo "$OUT" | grep -q "markerless full-review summary"; then
+if [ "$RC" = 1 ] && grep -q "comment id 7002" <<<"$OUT" \
+    && grep -q "markerless full-review summary" <<<"$OUT"; then
   pass "a stale marker-led summary cannot shadow a current markerless finding"
 else
   fail "expected rc=1 with current markerless finding despite stale marker-led summary; got rc=$RC"
@@ -3310,9 +3517,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -q "awaiting its PR-level summary" \
-    && echo "$OUT" | grep -q "markerless full-review summary in review object 8001" \
-    && echo "$OUT" | grep -q "head-pinned by its commit_id to $HEAD_SHA"; then
+if [ "$RC" = 0 ] && ! grep -q "awaiting its PR-level summary" <<<"$OUT" \
+    && grep -q "markerless full-review summary in review object 8001" <<<"$OUT" \
+    && grep -q "head-pinned by its commit_id to $HEAD_SHA" <<<"$OUT"; then
   pass "a terminal review object clears the hold even when the walkthrough names an older head"
 else
   fail "expected rc=0 with no hold on a terminal CodeRabbit; got rc=$RC"
@@ -3339,14 +3546,63 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "a blocking finding in the review object's own body gates rather than clearing"
 else
   fail "expected rc=1 from the review-object body's own finding; got rc=$RC"
   echo "$OUT" | sed 's/^/      /' >&2
 fi
+
+# #1407: the current blockquoted bold heading and the legacy HTML summary
+# contain structural warning/category markers, not a required finding. Keep
+# the real nested Major control in the same accepted review-object shape.
+for heading in '> **⚠️ Outside diff range comments (1)**' \
+  '<summary>⚠️ Outside diff range comments (1)</summary>'; do
+  for tier_case in minor major required-minor; do
+    heading_scratch=$SCRATCH
+    finding='<strong>🟡 Minor</strong> Real nested finding.'
+    expected=0
+    expected_tier=P2
+    case "$tier_case" in
+      major)
+        finding='<strong>🟠 Major</strong> Real nested finding.'
+        expected=1; expected_tier=P1 ;;
+      required-minor)
+        heading_scratch=$(make_scratch_with_policy "${DEFAULT_POLICY/p2: discretionary/p2: required}")
+        expected=1 ;;
+    esac
+    FIXTURE_REVIEWS=$(make_reviews_fixture "$HEAD_SHA" COMMENTED "2026-08-04T00:00:10Z" \
+      "**Actionable comments posted: 0**
+
+$heading
+> <details>
+> <summary>$finding</summary><blockquote>
+> </blockquote></details>")
+    set +e
+    OUT=$(
+      REQUIRE_REVIEW_SUMMARY=true \
+      FIXTURE_PR="$FIXTURE_PR" \
+      FIXTURE_COMMENTS="$FIXTURE_COMMENTS" \
+      FIXTURE_THREADS="$FIXTURE_THREADS" \
+      FIXTURE_ISSUE_COMMENTS="$FIXTURE_ISSUE_COMMENTS" \
+      FIXTURE_REVIEWS="$FIXTURE_REVIEWS" \
+        run_gate "$heading_scratch" 99 owner/repo 2>&1
+    )
+    RC=$?
+    set -e
+    if [ "$RC" = "$expected" ] \
+      && grep -q "CodeRabbit blocking-tier unresolved: $expected" <<<"$OUT" \
+      && grep -q 'markerless full-review summary in review object 8001' <<<"$OUT" \
+      && { [ "$expected" = 0 ] || grep -qF "[$expected_tier] (PR-level summary comment):5" <<<"$OUT"; }; then
+      pass "outside-diff heading preserves nested tier and policy: $heading / $tier_case"
+    else
+      fail "outside-diff heading expected rc=$expected, got rc=$RC: $heading / $finding"
+      echo "$OUT" | sed 's/^/      /' >&2
+    fi
+  done
+done
 
 # The scope anchor is the object's GitHub-owned commit_id, not its timestamp: a
 # review object on ANOTHER head contributes nothing, however recent it is. Pairs
@@ -3370,9 +3626,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary" \
-    && ! echo "$OUT" | grep -q "markerless full-review summary in review object"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT" \
+    && ! grep -q "markerless full-review summary in review object" <<<"$OUT"; then
   pass "a review object pinned to another head neither gates nor holds"
 else
   fail "expected rc=0 with an off-head review object ignored; got rc=$RC"
@@ -3443,9 +3699,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && ! echo "$OUT" | grep -q "awaiting its PR-level summary" \
-    && echo "$OUT" | grep -q "markerless full-review summary in review object 8001" \
-    && echo "$OUT" | grep -q "recognised by: own-commits-range"; then
+if [ "$RC" = 0 ] && ! grep -q "awaiting its PR-level summary" <<<"$OUT" \
+    && grep -q "markerless full-review summary in review object 8001" <<<"$OUT" \
+    && grep -q "recognised by: own-commits-range" <<<"$OUT"; then
   pass "a header-less terminal report is recognised by the commits range in its own body"
 else
   fail "expected rc=0 with the header-less report accepted; got rc=$RC"
@@ -3470,9 +3726,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "a blocking finding in a header-less review body gates rather than clearing"
 else
   fail "expected rc=1 from the header-less body's own finding; got rc=$RC"
@@ -3498,7 +3754,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "review run object(s): 8001"; then
+if [ "$RC" = 3 ] && grep -q "review run object(s): 8001" <<<"$OUT"; then
   pass "a header-less body naming another head does not certify this one"
 else
   fail "expected rc=3 on a header-less body naming a stale head; got rc=$RC"
@@ -3524,7 +3780,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "review run object(s): 8001"; then
+if [ "$RC" = 3 ] && grep -q "review run object(s): 8001" <<<"$OUT"; then
   pass "a non-benign stanza keeps a head-naming body out of scope"
 else
   fail "expected rc=3 on a rate-limited header-less body; got rc=$RC"
@@ -3571,9 +3827,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 1 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 1" \
-    && echo "$OUT" | grep -q "\[P1\] (PR-level summary comment)" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 1 ] && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT" \
+    && grep -q "\[P1\] (PR-level summary comment)" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "an unrecognised later run cannot poison the floor and hide a recognised Major"
 else
   fail "expected rc=1 reporting the recognised run's Major; got rc=$RC"
@@ -3607,9 +3863,9 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && echo "$OUT" | grep -q "markerless full-review summary in review object 8002" \
-    && ! echo "$OUT" | grep -q "awaiting its PR-level summary"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && grep -q "markerless full-review summary in review object 8002" <<<"$OUT" \
+    && ! grep -q "awaiting its PR-level summary" <<<"$OUT"; then
   pass "the newest recognised run's own summary is the verdict on a same-head re-review"
 else
   fail "expected rc=0 from the superseding run's summary; got rc=$RC"
@@ -3655,8 +3911,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "unrecognised head-pinned review run object(s): 8002" \
-    && ! echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+if [ "$RC" = 3 ] && grep -q "unrecognised head-pinned review run object(s): 8002" <<<"$OUT" \
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
   pass "a clean earlier publication cannot certify a head whose newest run is unread"
 else
   fail "expected rc=3 naming the unread newer run 8002; got rc=$RC"
@@ -3678,8 +3934,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "unrecognised head-pinned review run object"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "unrecognised head-pinned review run object" <<<"$OUT"; then
   pass "the default-false path keeps its arrival-independent answer"
 else
   fail "expected rc=0 with no hold when REQUIRE_REVIEW_SUMMARY is unset; got rc=$RC"
@@ -3715,7 +3971,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "unrecognised head-pinned review run object(s): 8002"; then
+if [ "$RC" = 3 ] && grep -q "unrecognised head-pinned review run object(s): 8002" <<<"$OUT"; then
   pass "a run the gate cannot place in the order is not certified around"
 else
   fail "expected rc=3 naming the untimestamped run 8002; got rc=$RC"
@@ -3744,7 +4000,7 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 3 ] && echo "$OUT" | grep -q "unrecognised head-pinned review run object(s): 8002"; then
+if [ "$RC" = 3 ] && grep -q "unrecognised head-pinned review run object(s): 8002" <<<"$OUT"; then
   pass "the (submitted_at, id) total order breaks a shared-second tie"
 else
   fail "expected rc=3 naming the same-second run 8002; got rc=$RC"
@@ -3776,8 +4032,8 @@ OUT=$(
 )
 RC=$?
 set -e
-if [ "$RC" = 0 ] && echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "unrecognised head-pinned review run object"; then
+if [ "$RC" = 0 ] && grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "unrecognised head-pinned review run object" <<<"$OUT"; then
   pass "an earlier same-second run belongs to the publication already read"
 else
   fail "expected rc=0 with no hold on the lower-id same-second run; got rc=$RC"
@@ -3801,13 +4057,13 @@ if ! grep -Fq '__unreadable__' "$WORKFLOW" \
     && grep -Fq '{ [ "$pre_fp_rc" -ne 0 ] || [ "$post_fp_rc" -ne 0 ]; }; then' "$WORKFLOW" \
     && awk '
       /\{ \[ "\$pre_fp_rc" -ne 0 \] \|\| \[ "\$post_fp_rc" -ne 0 \]; \}; then/ { guarding=1; next }
-      guarding && /continue/ { found=1; exit }
+      guarding && /CR_EVIDENCE_FAILURE="fingerprint-read-failed"/ { found=1; exit }
       guarding && /^            fi/ { exit }
       END { exit(found ? 0 : 1) }
     ' "$WORKFLOW"; then
-  pass "unreadable fingerprint snapshots skip publication without a random sentinel"
+  pass "unreadable fingerprint snapshots close only their owned generation red without a random sentinel"
 else
-  fail "workflow must retain fingerprint read status and continue on either read failure"
+  fail "workflow must retain fingerprint read status and fail the owned generation on either read failure"
 fi
 
 # ---------------------------------------------------------------------------
@@ -3879,7 +4135,9 @@ i=0
 while [ "$i" -lt "$RACE_ITERS" ]; do
   # Deliberately the OLD racy idiom, run in a subshell with `set +e` so one
   # SIGPIPE-induced failure doesn't abort this test loop under `set -e`.
-  if ! (set +e; printf '%s\n' "$RACE_PAYLOAD" | grep -q "$NEEDLE"); then
+  # stderr is discarded: the broken-pipe warning is the expected symptom
+  # being measured here, not a test failure (#2569).
+  if ! (set +e; printf '%s\n' "$RACE_PAYLOAD" | grep -q "$NEEDLE") 2>/dev/null; then
     RACE_PIPED_FAILURES=$((RACE_PIPED_FAILURES + 1))
   fi
   # The fixed herestring idiom must never fail — this is the assertion.
@@ -3957,8 +4215,8 @@ set -e
 # The summary must have survived classification — otherwise the failure under
 # test never ran and a green here would be vacuous.
 if [ "$TOTAL_AWK" -gt 1 ] && [ "$RC" != 0 ] \
-    && ! echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT" | grep -q "carries a non-benign outcome stanza"; then
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT" \
+    && ! grep -q "carries a non-benign outcome stanza" <<<"$OUT"; then
   pass "#936: a failed summary read fails closed rather than reporting zero blocking findings"
 else
   fail "#936: expected a nonzero exit with no 'unresolved: 0' claim and a classified summary; got rc=$RC (reader runs=$TOTAL_AWK)"
@@ -4025,14 +4283,14 @@ while [ "$IDX_52" -lt "$TOTAL_AWK_52" ]; do
   )
   RC=$?
   set -e
-  if [ "$RC" = 0 ] || echo "$OUT" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+  if [ "$RC" = 0 ] || grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT"; then
     SITE_FAILURES_52="$SITE_FAILURES_52 run$((IDX_52 + 1))(rc=$RC)"
   fi
   # Acceptance criterion 2: the classifier must not report an UNREADABLE
   # summary as one that "carries a non-benign outcome stanza". That message
   # names a specific, wrong diagnosis — an operator reading it goes looking
   # for a rate limit rather than for a broken read.
-  if echo "$OUT" | grep -q "carries a non-benign outcome stanza"; then
+  if grep -q "carries a non-benign outcome stanza" <<<"$OUT"; then
     SITE_STANZA_MISDIAGNOSIS_52="$SITE_STANZA_MISDIAGNOSIS_52 run$((IDX_52 + 1))"
   fi
   IDX_52=$((IDX_52 + 1))
@@ -4095,7 +4353,7 @@ OUT_53_CONTROL=$(
 RC_53_CONTROL=$?
 set -e
 if [ "$RC_53_CONTROL" != 0 ] \
-    && echo "$OUT_53_CONTROL" | grep -q "CodeRabbit blocking-tier unresolved: 1"; then
+    && grep -q "CodeRabbit blocking-tier unresolved: 1" <<<"$OUT_53_CONTROL"; then
   pass "#942 control: the strip fixture gates on its 🟠 Major with every reader working"
 else
   fail "#942 control: expected a nonzero exit reporting 1 unresolved blocking finding; got rc=$RC_53_CONTROL (the cases below would be vacuous)"
@@ -4119,7 +4377,7 @@ OUT_53A=$(
 RC_53A=$?
 set -e
 if [ "$RC_53A" != 0 ] \
-    && ! echo "$OUT_53A" | grep -q "CodeRabbit blocking-tier unresolved: 0"; then
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT_53A"; then
   pass "#942: a failed pre-merge-block STRIP fails closed, never 'unresolved: 0'"
 else
   fail "#942: a failed pre-merge-block strip cleared the gate; got rc=$RC_53A"
@@ -4142,8 +4400,8 @@ OUT_53B=$(
 RC_53B=$?
 set -e
 if [ "$RC_53B" != 0 ] \
-    && ! echo "$OUT_53B" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT_53B" | grep -q "does not name $HEAD_SHA as its commits-range end"; then
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT_53B" \
+    && ! grep -q "does not name $HEAD_SHA as its commits-range end" <<<"$OUT_53B"; then
   pass "#942: a grep ERROR on the commits-range scan fails closed, and is not reported as a stale summary"
 else
   fail "#942: a grep error on the commits-range scan cleared the gate or was misdiagnosed as a stale summary; got rc=$RC_53B"
@@ -4168,8 +4426,8 @@ OUT_53C=$(
 RC_53C=$?
 set -e
 if [ "$RC_53C" != 0 ] \
-    && ! echo "$OUT_53C" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT_53C" | grep -q "carries a non-benign outcome stanza"; then
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT_53C" \
+    && ! grep -q "carries a non-benign outcome stanza" <<<"$OUT_53C"; then
   pass "#942: a grep ERROR on the benign stanza allow-list fails closed, and is not misdiagnosed as a non-benign stanza"
 else
   fail "#942: a grep error on the benign stanza allow-list cleared the gate or was misdiagnosed as a non-benign stanza; got rc=$RC_53C"
@@ -4191,8 +4449,8 @@ OUT_53D=$(
 RC_53D=$?
 set -e
 if [ "$RC_53D" != 0 ] \
-    && ! echo "$OUT_53D" | grep -q "CodeRabbit blocking-tier unresolved: 0" \
-    && ! echo "$OUT_53D" | grep -q "carries a non-benign outcome stanza"; then
+    && ! grep -q "CodeRabbit blocking-tier unresolved: 0" <<<"$OUT_53D" \
+    && ! grep -q "carries a non-benign outcome stanza" <<<"$OUT_53D"; then
   pass "#942: a grep ERROR on the stanza-opener count fails closed, and is not misdiagnosed as a non-benign stanza"
 else
   fail "#942: a grep error on the stanza-opener count cleared the gate or was misdiagnosed as a non-benign stanza; got rc=$RC_53D"
@@ -4230,7 +4488,7 @@ for SURFACE_878 in inline summary; do
     RC_878=$?
     set -e
     if [ "$RC_878" = 2 ] \
-        && ! printf '%s' "$OUT_878" | grep -q 'CodeRabbit blocking-tier unresolved: 0'; then
+        && ! grep -q 'CodeRabbit blocking-tier unresolved: 0' <<<"$OUT_878"; then
       pass "#878: $SURFACE_878 extraction failure (partial='$PARTIAL_878') exits 2, not clear or pending"
     else
       fail "#878: $SURFACE_878 extraction failure (partial='$PARTIAL_878') expected rc=2, got $RC_878"

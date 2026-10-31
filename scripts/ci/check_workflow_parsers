@@ -1360,29 +1360,29 @@ else
 fi
 
 echo
-echo "dependabot-auto-merge.yml reviewer-token fail-closed regression (#374 Pattern A)"
+echo "dependabot-auto-merge.yml reviewer-token fail-closed regression (#374 Pattern A, #2729)"
 
 if workflow_guard_block_contains_exit \
   "$dependabot_workflow" \
-  'if [ -z "${GH_TOKEN:-}" ]; then' \
-  'GH_TOKEN is empty. REVIEWER_ASSIGNMENT_TOKEN secret is not set'; then
+  'if [ -z "${REVIEWER_TOKEN:-}" ]; then' \
+  'DEPENDABOT_REVIEWER_TOKEN is unavailable from the dependabot-reviewer environment'; then
   pass=$((pass + 1))
-  echo "  PASS: Dependabot auto-merge exits when REVIEWER_ASSIGNMENT_TOKEN is empty"
+  echo "  PASS: Dependabot auto-merge exits when DEPENDABOT_REVIEWER_TOKEN is empty"
 else
   fail=$((fail + 1))
-  echo "  FAIL: Dependabot auto-merge must fail closed when REVIEWER_ASSIGNMENT_TOKEN/GH_TOKEN is empty" >&2
+  echo "  FAIL: Dependabot auto-merge must fail closed when DEPENDABOT_REVIEWER_TOKEN is empty" >&2
 fi
 
-if grep -Fq 'ACTING_AS=$(gh api user --jq .login' "$dependabot_workflow" &&
+if grep -Fq 'ACTING_AS=$(GH_TOKEN="$REVIEWER_TOKEN" gh api user --jq .login' "$dependabot_workflow" &&
    workflow_guard_block_contains_exit \
      "$dependabot_workflow" \
      'if [ -z "$ACTING_AS" ]; then' \
      'gh api user returned empty'; then
   pass=$((pass + 1))
-  echo "  PASS: Dependabot auto-merge exits when REVIEWER_ASSIGNMENT_TOKEN cannot resolve an identity"
+  echo "  PASS: Dependabot auto-merge exits when DEPENDABOT_REVIEWER_TOKEN cannot resolve an identity"
 else
   fail=$((fail + 1))
-  echo "  FAIL: Dependabot auto-merge must fail closed when REVIEWER_ASSIGNMENT_TOKEN cannot resolve an identity" >&2
+  echo "  FAIL: Dependabot auto-merge must fail closed when DEPENDABOT_REVIEWER_TOKEN cannot resolve an identity" >&2
 fi
 
 if workflow_guard_block_contains_exit \
@@ -1393,7 +1393,7 @@ if workflow_guard_block_contains_exit \
   echo "  PASS: Dependabot auto-merge exits when the reviewer token resolves to the PR author"
 else
   fail=$((fail + 1))
-  echo "  FAIL: Dependabot auto-merge must fail closed when REVIEWER_ASSIGNMENT_TOKEN resolves to the PR author" >&2
+  echo "  FAIL: Dependabot auto-merge must fail closed when DEPENDABOT_REVIEWER_TOKEN resolves to the PR author" >&2
 fi
 
 if workflow_guard_block_contains_exit \
@@ -1404,7 +1404,7 @@ if workflow_guard_block_contains_exit \
   echo "  PASS: Dependabot auto-merge exits when the reviewer token is not allowlisted"
 else
   fail=$((fail + 1))
-  echo "  FAIL: Dependabot auto-merge must fail closed when REVIEWER_ASSIGNMENT_TOKEN is not in available_reviewers" >&2
+  echo "  FAIL: Dependabot auto-merge must fail closed when DEPENDABOT_REVIEWER_TOKEN is not in available_reviewers" >&2
 fi
 
 if grep -Fq "!contains(github.event.pull_request.labels.*.name, 'human-hold')" "$dependabot_workflow"; then
@@ -1455,11 +1455,12 @@ rhc="scripts/required-head-checks.sh"
 if [ -x "$rhc" ] && \
    grep -Fq 'indeterminate, not a 404' "$rhc" && \
    grep -Fq 'yields no check names' "$rhc" && \
-   grep -Fq 'group_by(.wf)' "$rhc" && \
+   grep -Fq 'head_check_runs_reduce' "$rhc" && \
+   grep -Fq 'group_by(.wf)' scripts/lib/head-check-runs.sh && \
    grep -Fq 'actions/runs?head_sha=' "$rhc" && \
    grep -Fq -- '--paginate' "$rhc" && \
    grep -Fq -- '-f check_name=' "$rhc" && \
-   grep -Fq 'if any(.status != "completed") then "pending"' "$rhc" && \
+   grep -Fq 'if any(.status != "completed") then {state:"pending"' scripts/lib/head-check-runs.sh && \
    grep -Fq 'required-head-checks.sh --repo' .github/workflows/agent-review.yml && \
    grep -Fq 'required-head-checks.sh --repo' .github/workflows/dependabot-auto-merge.yml && \
    grep -Fq 'required-head-checks.sh" --repo' scripts/workflow/approval-merge-continuation.sh && \
@@ -1519,6 +1520,16 @@ else
 fi
 
 echo
+echo "dependabot-auto-merge.yml reviewer environment and base guard (#2729)"
+if tests/test_dependabot_reviewer_environment.sh; then
+  pass=$((pass + 1))
+  echo "  PASS: approval reads DEPENDABOT_REVIEWER_TOKEN only in the approve job, fails closed, and both jobs carry the base-is-default guard"
+else
+  fail=$((fail + 1))
+  echo "  FAIL: Dependabot reviewer environment, exact-head approval or base guard regressed" >&2
+fi
+
+echo
 echo "dependabot-auto-merge.yml current-head check wait behavior (#889)"
 if tests/test_dependabot_auto_merge_check_wait.sh; then
   pass=$((pass + 1))
@@ -1526,6 +1537,16 @@ if tests/test_dependabot_auto_merge_check_wait.sh; then
 else
   fail=$((fail + 1))
   echo "  FAIL: Dependabot current-head check wait behavior regressed" >&2
+fi
+
+echo
+echo "dependabot-auto-merge.yml author-token class gate (#2728)"
+if tests/test_author_merge_token.sh; then
+  pass=$((pass + 1))
+  echo "  PASS: a fine-grained policy rejects the shared classic token; any keeps it"
+else
+  fail=$((fail + 1))
+  echo "  FAIL: the author-token class gate regressed" >&2
 fi
 
 echo
@@ -1617,17 +1638,28 @@ else
 fi
 
 echo "Workflow js-yaml install tests"
-for workflow in .github/workflows/agent-review.yml .github/workflows/pr-audit.yml; do
-  install_count=$(grep -Ec 'run: npm install .*js-yaml' "$workflow" || true)
-  safe_install_count=$(grep -Ec 'run: npm install .*--no-save .*--ignore-scripts .*--legacy-peer-deps .*js-yaml' "$workflow" || true)
-  if [ "$install_count" -gt 0 ] && [ "$install_count" = "$safe_install_count" ]; then
-    pass=$((pass + 1))
-    echo "  PASS: $workflow installs js-yaml without mutating package metadata or resolving peer deps"
-  else
-    fail=$((fail + 1))
-    echo "  FAIL: $workflow must install js-yaml with --no-save --ignore-scripts --legacy-peer-deps (safe=$safe_install_count total=$install_count)" >&2
-  fi
-done
+# #2775: agent-review.yml installs nothing at run time. Its one js-yaml
+# consumer, detect-disagreement, held the CI-actor PAT while it require()d a
+# registry-resolved package; it now reads the reviewer list through the
+# trusted shell loader instead.
+agent_review_installs=$(grep -Ec '(npm|npx|yarn|pnpm) (install|ci|add|exec)' .github/workflows/agent-review.yml || true)
+if [ "$agent_review_installs" = "0" ]; then
+  pass=$((pass + 1))
+  echo "  PASS: agent-review.yml resolves no package at run time"
+else
+  fail=$((fail + 1))
+  echo "  FAIL: agent-review.yml must not install packages at run time (#2775; got $agent_review_installs)" >&2
+fi
+workflow=.github/workflows/pr-audit.yml
+install_count=$(grep -Ec 'run: npm install .*js-yaml' "$workflow" || true)
+safe_install_count=$(grep -Ec 'run: npm install .*--no-save .*--ignore-scripts .*--legacy-peer-deps .*js-yaml' "$workflow" || true)
+if [ "$install_count" -gt 0 ] && [ "$install_count" = "$safe_install_count" ]; then
+  pass=$((pass + 1))
+  echo "  PASS: $workflow installs js-yaml without mutating package metadata or resolving peer deps"
+else
+  fail=$((fail + 1))
+  echo "  FAIL: $workflow must install js-yaml with --no-save --ignore-scripts --legacy-peer-deps (safe=$safe_install_count total=$install_count)" >&2
+fi
 
 echo
 echo "agent-review.yml whole-file YAML parse (#754)"

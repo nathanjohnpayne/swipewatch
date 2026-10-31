@@ -36,7 +36,7 @@ shift
 [ "${1:-}" != --paginate ] || shift
 printf '%s\n' "$1" >>"$CALLS"
 case "$1" in
-  repos/owner/repo/pulls/99) jq -cn --arg body "$PR_BODY" --arg author "$PR_AUTHOR" '{head:{sha:"abcdef0123456789000000000000000000000000"},user:{login:$author},body:$body,labels:[]}' ;;
+  repos/owner/repo/pulls/99) jq -cn --arg body "$PR_BODY" --arg author "$PR_AUTHOR" '{head:{sha:"abcdef0123456789000000000000000000000000"},base:{ref:"main"},user:{login:$author},body:$body,labels:[]}' ;;
   repos/owner/repo/commits/*) [ "${TIMESTAMP_READS_FAIL:-0}" != 1 ] || exit 1; echo '2026-09-14T00:00:00Z' ;;
   repos/owner/repo/issues/99/comments)
     if [ -n "${COMMENTS_FAIL_FROM:-}" ] \
@@ -44,50 +44,116 @@ case "$1" in
       exit 1
     fi
     cat "$FIXTURES/comments" ;;
-  repos/owner/repo/pulls/99/reviews) cat "$FIXTURES/reviews" ;;
+  repos/owner/repo/pulls/99/reviews) [ "${REVIEWS_FAIL:-0}" != 1 ] || { echo 'fixture review read failed' >&2; exit 1; }; cat "$FIXTURES/reviews" ;;
+  repos/owner/repo/pulls/99/files) printf '%s\n' '[]' ;;
+  repos/owner/repo/rulesets*) printf '%s\n' '[]' ;;
+  repos/owner/repo/rules/branches/main) printf '%s\n' '[]' ;;
+  repos/owner/repo/contents/.github/workflows/repo_lint_local.yml*) echo 'HTTP 404: fixture annex absent' >&2; exit 1 ;;
   repos/owner/repo/issues/comments/123/reactions) [ "$ACK_READ" != error ] || exit 1; cat "$FIXTURES/ack" ;;
-  repos/owner/repo/issues/comments/124/reactions) echo '[]' ;;
+  repos/owner/repo/issues/comments/124/reactions) cat "$FIXTURES/new-ack" ;;
   repos/owner/repo/issues/99/reactions) printf '%s\n' "$ISSUE_REACTIONS" ;;
   repos/owner/repo/issues/99/timeline) [ "${TIMESTAMP_READS_FAIL:-0}" != 1 ] || exit 1; echo '[]' ;;
   repos/owner/repo/pulls/99/comments) [ "${INLINE_COMMENTS_FAIL:-0}" != 1 ] || exit 1; printf '%s\n' "${INLINE_COMMENTS_JSON:-[]}" ;;
-  graphql) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}}' ;;
+  graphql)
+    case "$*" in
+      *requiredStatusCheckContexts*) printf '%s\n' '{"data":{"repository":{"isInOrganization":false,"viewerPermission":"WRITE","ref":{"refUpdateRule":{"requiredStatusCheckContexts":["Build"]}}}}}' ;;
+      *statusCheckRollup*) printf '%s\n' '{"data":{"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"StatusContext","context":"Build","state":"FAILURE","createdAt":"2026-09-14T00:03:00Z","isRequired":true}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}]}}}}}' ;;
+      *) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}}' ;;
+    esac ;;
   *) echo "unexpected $*" >&2; exit 99 ;;
 esac
 GH
 chmod +x "$DIR/bin/gh"
 TRIGGER='{"id":123,"user":{"login":"nathanjohnpayne"},"created_at":"2026-09-14T00:01:00Z","body":"@codex review"}'
 LATER_MENTION='{"id":124,"user":{"login":"nathanjohnpayne"},"created_at":"2026-09-14T00:03:00Z","body":"Status: @codex review was already requested."}'
+UPPER_TRIGGER='{"id":124,"user":{"login":"nathanjohnpayne"},"created_at":"2026-09-14T00:03:00Z","body":"@CODEX REVIEW"}'
+UPPER_QUOTE='{"id":125,"user":{"login":"nathanjohnpayne"},"created_at":"2026-09-14T00:05:00Z","body":"> @CODEX REVIEW"}'
+UPPER_PROSE='{"id":126,"user":{"login":"nathanjohnpayne"},"created_at":"2026-09-14T00:06:00Z","body":"Status: @CODEX REVIEW was already requested."}'
 EYES='[{"user":{"login":"chatgpt-codex-connector[bot]"},"content":"eyes","created_at":"2026-09-14T00:02:00Z"}]'
 # shellcheck disable=SC2016 # Literal Markdown commit cell, not shell substitution.
 RUNNING='{"id":456,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-09-14T00:02:00Z","body":"<!-- codex-pull-request-review-summary -->\n| 📝 **Code Review** | **Running** | `abcdef0` | Manual |"}'
 REVIEW='[{"id":789,"user":{"login":"chatgpt-codex-connector[bot]"},"commit_id":"abcdef0123456789000000000000000000000000","submitted_at":"2026-09-14T00:02:00Z","state":"COMMENTED"}]'
+QUOTA='{"id":124,"user":{"login":"chatgpt-codex-connector[bot]"},"created_at":"2026-09-14T00:01:00Z","body":"You have reached your Codex usage limits for code reviews."}'
 PASS=0
-while IFS='|' read -r name comments ack reviews mode opted expected pattern reads; do
+# #1635: each empty input must fail without partial anchor output.
+threshold_committed=2026-09-14T00:00:00Z
+threshold_now=1789345200
+for threshold_empty in committed seconds epoch; do
+  threshold_date="$threshold_committed"; threshold_seconds=1800; threshold_epoch="$threshold_now"
+  case "$threshold_empty" in
+    committed) threshold_date='' ;;
+    seconds) threshold_seconds='' ;;
+    epoch) threshold_epoch='' ;;
+  esac
+  threshold_rc=0
+  crqe_request_threshold "$threshold_date" '[]' "$threshold_seconds" "$threshold_epoch" \
+    >"$DIR/threshold.out" 2>"$DIR/threshold.err" || threshold_rc=$?
+  if [ "$threshold_rc" = 1 ] && [ ! -s "$DIR/threshold.out" ]; then
+    PASS=$((PASS + 1)); echo "PASS: empty threshold $threshold_empty fails with no output"
+  else
+    echo "FAIL: empty threshold $threshold_empty returned rc=$threshold_rc or output" >&2
+    exit 1
+  fi
+done
+# Fixed valid inputs retain the complete byte-level anchor record.
+threshold_out=$(crqe_request_threshold "$threshold_committed" '[]' 1800 "$threshold_now") \
+  || { echo 'FAIL: valid threshold input was rejected' >&2; exit 1; }
+threshold_expected='{"head_pushed_at":"2026-09-14T00:00:00Z","anchor_source":"HEAD committer date","reaction_floor":"2026-09-13T23:50:00Z","reaction_threshold":"2026-09-14T00:00:00Z","reaction_threshold_source":"HEAD pushed-at anchor (HEAD committer date)"}'
+if [ "$threshold_out" = "$threshold_expected" ]; then
+  PASS=$((PASS + 1)); echo 'PASS: valid threshold anchor output is unchanged'
+else
+  echo "FAIL: valid threshold anchor output: $threshold_out" >&2
+  exit 1
+fi
+
+while IFS='|' read -r name comments ack reviews mode opted expected pattern reads selected_trigger; do
   case "$comments" in
     trigger) comments="[$TRIGGER]" ;;
     wrong-id) comments="[${TRIGGER/123/124}]" ;;
     mention-only) comments="[$LATER_MENTION]" ;;
     trigger-then-mention) comments="[$TRIGGER,$LATER_MENTION]" ;;
+    lower-then-upper) comments="[$TRIGGER,$UPPER_TRIGGER]" ;;
+    upper-then-quote) comments="[$TRIGGER,$UPPER_TRIGGER,$UPPER_QUOTE]" ;;
+    upper-then-prose) comments="[$TRIGGER,$UPPER_TRIGGER,$UPPER_PROSE]" ;;
+    upper-quote-only) comments="[$UPPER_QUOTE]" ;;
+    upper-prose-only) comments="[$UPPER_PROSE]" ;;
     mention-running) comments="[$LATER_MENTION,$RUNNING]" ;;
     future) comments="[${TRIGGER/2026-09-14T00:01:00Z/2077-09-14T00:01:00Z}]" ;;
     stale) comments="[${TRIGGER/2026-09-14T00:01:00Z/2026-09-13T00:01:00Z}]" ;;
     foreign) comments="[${TRIGGER/nathanjohnpayne/nathanpayne-claude}]" ;;
     running) comments="[$RUNNING]" ;;
     completed) comments="[${RUNNING/Running/Completed}]" ;;
+    old-block) comments="[$TRIGGER,${QUOTA/2026-09-14T00:01:00Z/2026-09-14T00:00:30Z}]" ;;
+    same-second-old-block) comments="[$TRIGGER,${QUOTA/124/122}]" ;;
+    current-block) comments="[$TRIGGER,${QUOTA/2026-09-14T00:01:00Z/2026-09-14T00:01:30Z}]" ;;
+    same-second-current-block) comments="[$TRIGGER,$QUOTA]" ;;
+    running-after-block) comments="[$TRIGGER,$QUOTA,$RUNNING]" ;;
     *) comments='[]' ;;
   esac
-  case "$ack" in eyes) ack="$EYES" ;; foreign) ack="${EYES/chatgpt-codex-connector\[bot\]/someone}" ;; *) ack='[]' ;; esac
+  new_ack='[]'
+  case "$ack" in
+    eyes) ack="$EYES" ;;
+    new-eyes) new_ack="${EYES/2026-09-14T00:02:00Z/2026-09-14T00:04:00Z}"; ack='[]' ;;
+    foreign) ack="${EYES/chatgpt-codex-connector\[bot\]/someone}" ;;
+    *) ack='[]' ;;
+  esac
   case "$reviews" in
     review) reviews="$REVIEW" ;;
     approved) reviews='[{"user":{"login":"nathanpayne-claude"},"state":"APPROVED","commit_id":"abcdef0123456789000000000000000000000000","submitted_at":"2026-09-14T00:02:00Z"}]' ;;
   esac
   printf '%s\n' "$comments" >"$DIR/comments"
   printf '%s\n' "$ack" >"$DIR/ack"
+  printf '%s\n' "$new_ack" >"$DIR/new-ack"
   printf '%s\n' "$reviews" >"$DIR/reviews"
   : >"$DIR/calls"
   cp "$DIR/default-policy.yml" "$DIR/policy.yml"
   [ "$name" != unknown-budget ] || sed -i.bak 's/review_timeout_seconds:.*/review_timeout_seconds: unavailable/' "$DIR/policy.yml"
   [ "$name" != default-budgets ] || sed -i.bak '/review_timeout_seconds:/d; /ack_wait_seconds:/d' "$DIR/policy.yml"
+  if [ "$name" = uppercase-configured-author ]; then
+    sed -i.bak 's/author_identity:.*/author_identity: diagnostic-author/' "$DIR/policy.yml"
+    comments="${comments//nathanjohnpayne/diagnostic-author}"
+    printf '%s\n' "$comments" >"$DIR/comments"
+  fi
   pr_body='Authoring-Agent: codex'; pr_author=nathanjohnpayne; issue_reactions='[]'
   if [ "$name" = rerun ] || [ "$name" = terminal-unapproved ]; then
     # An external contributor has no same-agent approval fallback. Preserve
@@ -97,6 +163,12 @@ while IFS='|' read -r name comments ack reviews mode opted expected pattern read
   if [ "$name" = thumbs-unapproved ]; then
     pr_body=''; pr_author=contributor; issue_reactions="${EYES/eyes/+1}"
   fi
+  case "$name" in
+    # #2550: the authoring agent's own approval is discounted, and the
+    # message names it and the threshold-aware gate rather than claiming
+    # that no approval exists.
+    same-agent-*) pr_body='Authoring-Agent: claude' ;;
+  esac
   rc=0
   PATH="$DIR/bin:$PATH" GH_TOKEN=stub FIXTURES="$DIR" CALLS="$DIR/calls" ACK_READ="$name" \
     PR_BODY="$pr_body" PR_AUTHOR="$pr_author" ISSUE_REACTIONS="$issue_reactions" \
@@ -111,9 +183,25 @@ while IFS='|' read -r name comments ack reviews mode opted expected pattern read
       cat "$DIR/out"; echo 'FAIL trigger-then-mention did not bind exact request #123'; exit 1
     fi
   fi
+  # #1430: the newest complete command owns both its diagnostic and the
+  # acknowledgement read; older request eyes cannot be borrowed.
+  if [ -n "$selected_trigger" ]; then
+    if ! grep -Fq "freshness-qualified author trigger #$selected_trigger at" "$DIR/out" \
+       || ! grep -Fxq "repos/owner/repo/issues/comments/$selected_trigger/reactions" "$DIR/calls"; then
+      cat "$DIR/out"; echo "FAIL $name did not select request #$selected_trigger and its acknowledgement"; exit 1
+    fi
+  fi
   if [ "$name" = requested ]; then
-    grep -Eq 'age=[0-9]+s; configured ack_wait_seconds=30; review_timeout_seconds=840' "$DIR/out"
-    grep -q 'not immutable SHA attribution' "$DIR/out"
+    if ! grep -Eq 'age=[0-9]+s; configured ack_wait_seconds=30; review_timeout_seconds=840' "$DIR/out"; then
+      echo 'FAIL requested case missing age/ack-wait/timeout diagnostic:'
+      cat "$DIR/out"
+      exit 1
+    fi
+    if ! grep -q 'not immutable SHA attribution' "$DIR/out"; then
+      echo 'FAIL requested case missing immutable-SHA attribution diagnostic:'
+      cat "$DIR/out"
+      exit 1
+    fi
   fi
   case "$name" in
     completed-*)
@@ -138,6 +226,13 @@ while IFS='|' read -r name comments ack reviews mode opted expected pattern read
 done <<'CASES'
 missing|none|none|[]||1|1|no freshness-qualified author trigger|0
 requested|trigger|eyes|[]||1|1|linked eyes acknowledgement=true|1
+uppercase-own-ack|lower-then-upper|new-eyes|[]||1|1|linked eyes acknowledgement=true|1|124
+uppercase-old-ack|lower-then-upper|eyes|[]||1|1|linked eyes acknowledgement=false|1|124
+uppercase-configured-author|lower-then-upper|new-eyes|[]||1|1|linked eyes acknowledgement=true|1|124
+uppercase-then-quote|upper-then-quote|new-eyes|[]||1|1|linked eyes acknowledgement=true|1|124
+uppercase-then-prose|upper-then-prose|new-eyes|[]||1|1|linked eyes acknowledgement=true|1|124
+uppercase-quote-only|upper-quote-only|new-eyes|[]||1|1|no freshness-qualified author trigger|0
+uppercase-prose-only|upper-prose-only|new-eyes|[]||1|1|no freshness-qualified author trigger|0
 no-ack|trigger|none|[]||1|1|linked eyes acknowledgement=false|1
 wrong-comment|wrong-id|eyes|[]||1|1|linked eyes acknowledgement=false|1
 mention-only|mention-only|eyes|[]||1|1|no freshness-qualified author trigger|0
@@ -158,9 +253,32 @@ completed-gate-c|completed|none|approved||1|1|completed summary observed.*inspec
 thumbs-unapproved|none|none|[]||1|1|no freshness-qualified author trigger|0
 gate-c|trigger|eyes|approved||1|1|linked eyes acknowledgement=true|1
 not-opted|trigger|eyes|[]||0|1|no reviewer identity|0
+same-agent-approved|none|none|approved||0|1|no qualifying reviewer approval cleared gate (b): the latest-state APPROVED review from the authoring agent.s own reviewer identity (nathanpayne-claude) is discounted.*run scripts/merge-clearance-gate.sh.*--require-codex-on-head|0
+same-agent-unapproved|none|none|[]||0|1|no reviewer identity in available_reviewers has a latest-state APPROVED review, and same-agent|0
 readiness|trigger|eyes|[]|--approval-readiness-only|1|1|no reviewer identity|0
 diagnostic|trigger|eyes|[]|--diagnostic-signal-only|1|1|Codex has not produced|0
+renewed-provider-block|old-block|none|[]|--require-codex-on-head|0|1|no reviewer identity|0
+same-second-prior-block|same-second-old-block|none|[]|--require-codex-on-head|0|1|no reviewer identity|0
+current-provider-block|current-block|none|[]|--require-codex-on-head|0|2|human_attention_required|0
+same-second-current-block|same-second-current-block|none|[]|--require-codex-on-head|0|2|human_attention_required|0
+running-after-provider-block|running-after-block|none|[]|--diagnostic-signal-only|0|1|Codex review summary is Running|0
 CASES
+
+# #2337: both live callers use the same request-ordering predicate.
+block='{"reason":"usage_limit","created_at":"2026-09-14T00:01:00Z","comment_id":124}'
+request='{"created_at":"2026-09-14T00:01:00Z","id":123}'
+[ "$(crqe_filter_provider_block "$block" "$request")" != null ]
+[ "$(crqe_filter_provider_block "$block" "${request/123/125}")" = null ]
+[ "$(crqe_filter_provider_block "$block" "${request/00:01:00Z/00:02:00Z}")" = null ]
+[ "$(crqe_filter_provider_block "$block" "${request/00:01:00Z/00:00:00Z}")" != null ]
+for status in running unknown; do
+  summary=$(jq -nc --arg status "$status" '{status:$status,observed_at:"2026-09-14T00:02:00Z"}')
+  [ "$(crqe_filter_provider_block "$block" "$request" "$summary")" = null ]
+done
+[ "$(crqe_filter_provider_block "$block" null)" != null ]
+rc=0; result=$(crqe_filter_provider_block "$block" '{"created_at":"2026-09-14T00:01:00Z"}' 2>/dev/null) || rc=$?
+[ "$rc" != 0 ] && [ -z "$result" ] || { echo 'FAIL: unreadable same-second request ordering became absence'; exit 1; }
+PASS=$((PASS + 8)); echo 'PASS: provider refusals bind request IDs/time and preserve newer active/unknown holds'
 # The existing carry-forward remains eligible and successful, without ack reads.
 # No author request is newer than the carried verdict here; a newer one would
 # supersede it until Codex answers (#1598, covered below).
@@ -171,7 +289,12 @@ CARRY_FIXTURE='{"carried":true,"source_time":"2026-09-14T00:00:00Z","source_comm
   MERGEPATH_REVIEW_POLICY_PATH="$DIR/policy.yml" CODEX_REVIEW_CHECK_REPORT_REQUEST_EVIDENCE=1 \
   bash "$DIR/scripts/codex-review-check.sh" 99 owner/repo >"$DIR/out" 2>&1 || { cat "$DIR/out"; exit 1; }
 if grep -q 'request evidence' "$DIR/out"; then echo 'FAIL: diagnostic on success'; exit 1; fi
-[ "$(grep -c '/issues/comments/' "$DIR/calls" || true)" = 0 ]
+carry_forward_api_calls=$(grep -c '/issues/comments/' "$DIR/calls" || true)
+if [ "$carry_forward_api_calls" != 0 ]; then
+  echo "FAIL carry-forward expected zero issue-comment API calls, got $carry_forward_api_calls:"
+  cat "$DIR/calls"
+  exit 1
+fi
 
 # The count and authority fence share one exact-command generation selector.
 # It is ID-stable, case-insensitive for the complete command, de-duplicates a
@@ -186,8 +309,174 @@ GENERATION_FIXTURE='[
 ]'
 [ "$(crqe_trigger_generation "$GENERATION_FIXTURE" nathanjohnpayne)" = '[123,125]' ]
 [ "$(crqe_count_triggers "$GENERATION_FIXTURE" nathanjohnpayne)" = 2 ]
-! crqe_trigger_generation '[{"id":"bad","user":{"login":"nathanjohnpayne"},"body":"@codex review"}]' nathanjohnpayne >/dev/null 2>&1
+if crqe_trigger_generation '[{"id":"bad","user":{"login":"nathanjohnpayne"},"body":"@codex review"}]' nathanjohnpayne >/dev/null 2>&1; then
+  echo "FAIL: malformed qualifying request ID was accepted" >&2
+  exit 1
+fi
 echo "PASS: shared exact-request generation selector"
+
+# #2534: a CodeRabbit rate-limit failover request does not spend the request
+# ceiling. Only a marker posted by the requester itself, right after its own
+# trigger, exempts that trigger; every forgery or stretch below leaves it
+# counted, and the trigger always stays in the generation.
+fo_c() { # <id> <login> <created> <body> [updated]
+  jq -nc --argjson id "$1" --arg u "$2" --arg c "$3" --arg b "$4" --arg up "${5:-$3}" \
+    '{id: $id, user: {login: $u}, created_at: $c, updated_at: $up, body: $b}'
+}
+FO_HA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+FO_HB=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+fo_m() { crqe_failover_marker_body "${2:-$FO_HA}" "$1"; }
+# The PR's heads (#2553): a marker must name one of them.
+FO_HEADS=$(jq -nc --arg a "$FO_HA" --arg b "$FO_HB" '[$a, $b]')
+fo_case() { # <name> <expected-exempt-json> <expected-count> <comment>...   (FO_CASE_HEADS overrides the heads)
+  local name=$1 want=$2 count=$3 c got n
+  shift 3
+  c=$(printf '%s\n' "$@" | jq -sc .)
+  got=$(crqe_failover_trigger_ids "$c" nathanjohnpayne "${FO_CASE_HEADS:-$FO_HEADS}") \
+    && n=$(crqe_count_triggers "$c" nathanjohnpayne "${FO_CASE_HEADS:-$FO_HEADS}") \
+    && [ "$got" = "$want" ] && [ "$n" = "$count" ] \
+    || { echo "FAIL: failover: $name (exempt=$got count=${n:-?}, want $want/$count)" >&2; exit 1; }
+}
+T1=$(fo_c 10 nathanjohnpayne 2026-10-01T00:00:00Z '@codex review')
+T2=$(fo_c 20 nathanjohnpayne 2026-10-01T01:00:00Z '@codex review')
+fo_case "no marker counts every request" '[]' 2 "$T1" "$T2"
+fo_case "a marker right after its trigger exempts it" '[10]' 1 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" "$T2"
+fo_case "a marker 300 s after is still in the window" '[10]' 1 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:05:00Z "$(fo_m 10)")" "$T2"
+fo_case "a marker added later cannot exempt an old request" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:05:01Z "$(fo_m 10)")" "$T2"
+fo_case "a marker by another login" '[]' 2 "$T1" "$(fo_c 11 nathanpayne-claude 2026-10-01T00:00:05Z "$(fo_m 10)")" "$T2"
+fo_case "an edited marker" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)" 2026-10-01T00:00:09Z)" "$T2"
+fo_case "a marker naming a comment that is not a request" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 9)")" "$T2"
+fo_case "a marker naming a foreign request" '[]' 2 "$T1" "$(fo_c 9 someone-else 2026-10-01T00:00:01Z '@codex review')" \
+  "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 9)")" "$T2"
+fo_case "a marker with another request between it and its trigger" '[]' 3 "$T1" \
+  "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:02Z '@codex review')" "$(fo_c 12 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" "$T2"
+fo_case "a marker that is not the whole body" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "> $(fo_m 10)")" \
+  "$(fo_c 12 nathanjohnpayne 2026-10-01T00:00:06Z "$(fo_m 10) extra")" "$T2"
+fo_case "an unknown marker version" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10 | sed 's/:v1 /:v2 /')")" "$T2"
+fo_case "a marker older than its trigger" '[]' 2 "$(fo_c 11 nathanjohnpayne 2026-09-30T23:59:59Z "$(fo_m 12)")" \
+  "$(fo_c 12 nathanjohnpayne 2026-10-01T00:00:00Z '@codex review')" "$T2"
+fo_case "one exemption per head" '[10]' 1 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" \
+  "$T2" "$(fo_c 21 nathanjohnpayne 2026-10-01T01:00:05Z "$(fo_m 20)")"
+fo_case "one exemption on each of two heads" '[10,20]' 0 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" \
+  "$T2" "$(fo_c 21 nathanjohnpayne 2026-10-01T01:00:05Z "$(fo_m 20 "$FO_HB")")"
+# #2553: a marker naming a head the PR never had exempts nothing, so one
+# marker per invented head cannot exempt every trigger.
+FO_HX=1111111111111111111111111111111111111111
+FO_HY=2222222222222222222222222222222222222222
+fo_case "a marker naming a foreign head" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10 "$FO_HX")")" "$T2"
+fo_case "one marker per invented head" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10 "$FO_HX")")" \
+  "$T2" "$(fo_c 21 nathanjohnpayne 2026-10-01T01:00:05Z "$(fo_m 20 "$FO_HY")")"
+fo_case "a real head and an invented one" '[10]' 1 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" \
+  "$T2" "$(fo_c 21 nathanjohnpayne 2026-10-01T01:00:05Z "$(fo_m 20 "$FO_HY")")"
+FO_CASE_HEADS='[]' fo_case "an empty head set" '[]' 2 "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" "$T2"
+_fo_c=$(printf '%s\n' "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" | jq -sc .)
+[ "$(crqe_failover_trigger_ids "$_fo_c" nathanjohnpayne)" = '[]' ] && [ "$(crqe_count_triggers "$_fo_c" nathanjohnpayne)" = 1 ] \
+  || { echo "FAIL: failover: callers that pass no head set must exempt nothing" >&2; exit 1; }
+crqe_failover_markers_present "$_fo_c" nathanjohnpayne && ! crqe_failover_markers_present "$_fo_c" someone-else \
+  && ! crqe_failover_markers_present "$(printf '%s\n' "$T1" | jq -sc .)" nathanjohnpayne \
+  || { echo "FAIL: failover: marker presence is misread" >&2; exit 1; }
+# The head set: the current head, the commit list, committed events and both
+# sides of a force-push; anything malformed fails so the caller uses [].
+_hs=$(crqe_pr_head_set "$(jq -nc --arg b "$FO_HB" '[{sha: $b}, {sha: "short"}]')" \
+  "$(jq -nc --arg x "$FO_HX" --arg y "$FO_HY" --arg c 3333333333333333333333333333333333333333 \
+     '[{event: "committed", sha: $c}, {event: "head_ref_force_pushed", commit_id: $y}, {event: "committed", sha: $x}, {event: "labeled", sha: "4444444444444444444444444444444444444444"}]')" \
+  "$(printf '%s' "$FO_HA" | tr a-f A-F)")
+[ "$_hs" = "$(jq -nc --arg a "$FO_HA" --arg b "$FO_HB" --arg x "$FO_HX" --arg y "$FO_HY" '[$a, $b, $x, $y, "3333333333333333333333333333333333333333"] | sort')" ] \
+  || { echo "FAIL: failover: head set was $_hs" >&2; exit 1; }
+! crqe_pr_head_set '{"not":"array"}' '[]' "$FO_HA" >/dev/null && ! crqe_pr_head_set '[]' '[]' abc >/dev/null \
+  || { echo "FAIL: failover: a malformed head-set input was accepted" >&2; exit 1; }
+[ "$(crqe_trigger_generation "$(printf '%s\n' "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10)")" | jq -sc .)" nathanjohnpayne)" = '[10]' ] \
+  || { echo "FAIL: failover: an exempt trigger left the request generation" >&2; exit 1; }
+! crqe_failover_marker_body abc 10 >/dev/null && ! crqe_failover_marker_body "$FO_HA" 0 >/dev/null \
+  || { echo "FAIL: failover: a marker was built from an abbreviated head or a zero id" >&2; exit 1; }
+# #2591: a force-push's before and after commits come from GraphQL, because the
+# REST event names neither; they join the head set as a fourth input.
+FO_HZ=5555555555555555555555555555555555555555
+[ "$(crqe_pr_head_set '[]' '[]' "$FO_HA" "$(jq -nc --arg z "$FO_HZ" '[$z, "short", null]')")" = "$(jq -nc --arg a "$FO_HA" --arg z "$FO_HZ" '[$a, $z] | sort')" ] \
+  || { echo "FAIL: failover: force-push heads were not added to the head set" >&2; exit 1; }
+! crqe_pr_head_set '[]' '[]' "$FO_HA" '{"not":"array"}' >/dev/null \
+  || { echo "FAIL: failover: a malformed force-push head list was accepted" >&2; exit 1; }
+_fo_mark_z=$(printf '%s\n' "$T1" "$(fo_c 11 nathanjohnpayne 2026-10-01T00:00:05Z "$(fo_m 10 "$FO_HZ")")" | jq -sc .)
+[ "$(crqe_failover_trigger_ids "$_fo_mark_z" nathanjohnpayne "$(crqe_pr_head_set '[]' '[]' "$FO_HA" "[\"$FO_HZ\"]")")" = '[10]' ] \
+  && [ "$(crqe_failover_trigger_ids "$_fo_mark_z" nathanjohnpayne "$(crqe_pr_head_set '[]' '[]' "$FO_HA")")" = '[]' ] \
+  || { echo "FAIL: failover: a marker on a force-pushed-away head must count only with the GraphQL heads" >&2; exit 1; }
+# #2600 BEGIN: keep every unbounded history off external command argv.
+# The shell-function shim reproduces Linux's per-argument limit on other OSes.
+(
+  jq() {
+    local argument
+    for argument in "$@"; do
+      if [ "${#argument}" -ge 131072 ]; then
+        return 91
+      fi
+    done
+    command jq "$@"
+  }
+  hs_commits=$(jq -nc --arg h "$FO_HB" '[range(0;4000) | {sha:$h}]')
+  hs_timeline=$(jq -nc --arg h "$FO_HY" '[{event:"committed",sha:$h}, {event:"commented",body:("x" * 150000)}]')
+  hs_force=$(jq -nc --arg h "$FO_HZ" '[range(0;4000) | $h]')
+  hs_expected=$(jq -nc --arg a "$FO_HA" --arg b "$FO_HB" --arg y "$FO_HY" --arg z "$FO_HZ" '[$a,$b,$y,$z] | sort')
+  # Prove the limit shim is live without executing an oversized argv.
+  if jq -n --argjson c "$hs_commits" '$c' >/dev/null; then
+    echo "FAIL: head set argument-limit control did not reject oversized argv" >&2
+    exit 1
+  fi
+  hs_actual=$(crqe_pr_head_set "$hs_commits" "$hs_timeline" "$FO_HA" "$hs_force") \
+    && [ "$hs_actual" = "$hs_expected" ] \
+    || { echo "FAIL: oversized histories lost PR heads" >&2; exit 1; }
+  # Each document must independently be exactly one array. Do not combine
+  # documents and let an empty input compensate for an adjacent extra one.
+  for hs_bad in '' '[] []' 'null' '{}' '["unterminated' '[] garbage'; do
+    for hs_slot in commits timeline force; do
+      hs_c='[]'; hs_t='[]'; hs_f='[]'
+      case "$hs_slot" in
+        commits) hs_c=$hs_bad ;;
+        timeline) hs_t=$hs_bad ;;
+        force) hs_f=$hs_bad ;;
+      esac
+      if crqe_pr_head_set "$hs_c" "$hs_t" "$FO_HA" "$hs_f" >"$DIR/head-set-invalid"; then
+        echo "FAIL: head set accepted malformed $hs_slot input" >&2
+        exit 1
+      fi
+      [ ! -s "$DIR/head-set-invalid" ] \
+        || { echo "FAIL: malformed head set emitted partial output" >&2; exit 1; }
+    done
+  done
+  if crqe_pr_head_set '[] []' '' "$FO_HA" '[]' >"$DIR/head-set-invalid" \
+     || crqe_pr_head_set '[' ']' "$FO_HA" '[]' >"$DIR/head-set-invalid"; then
+    echo "FAIL: head set accepted cross-input document compensation" >&2
+    exit 1
+  fi
+  [ ! -s "$DIR/head-set-invalid" ] || exit 1
+)
+echo "PASS: oversized PR histories stream independently and malformed documents fail closed (#2600)"
+# #2600 END
+
+# crqe_force_push_heads reads every page through gh's GraphQL pagination,
+# which needs the $endCursor variable, and fails on a failed or shapeless read.
+FP_DIR=$(mktemp -d)
+cat >"$FP_DIR/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$FP_LOG"
+[ "${FP_MODE:-ok}" != fail ] || exit 1
+if [ "${FP_MODE:-ok}" = shapeless ]; then printf '{"data":{"repository":null}}\n'; exit 0; fi
+printf '%s\n' '{"data":{"repository":{"pullRequest":{"timelineItems":{"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"beforeCommit":{"oid":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},"afterCommit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]}}}}}'
+printf '%s\n' '{"data":{"repository":{"pullRequest":{"timelineItems":{"pageInfo":{"hasNextPage":false,"endCursor":"c2"},"nodes":[{"beforeCommit":{"oid":"cccccccccccccccccccccccccccccccccccccccc"},"afterCommit":null},{}]}}}}}'
+GH
+chmod +x "$FP_DIR/gh"
+_fp=$(PATH="$FP_DIR:$PATH" FP_LOG="$FP_DIR/log" crqe_force_push_heads owner/repo 7)
+[ "$_fp" = '["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","cccccccccccccccccccccccccccccccccccccccc"]' ] \
+  || { echo "FAIL: failover: force-push heads across pages were $_fp" >&2; exit 1; }
+grep -q -- '--paginate' "$FP_DIR/log" && grep -q 'endCursor' "$FP_DIR/log" && grep -q 'owner=owner' "$FP_DIR/log" \
+  && grep -q 'name=repo' "$FP_DIR/log" && grep -q 'number=7' "$FP_DIR/log" \
+  || { echo "FAIL: failover: the force-push read is not a paginated query for owner/repo#7: $(cat "$FP_DIR/log")" >&2; exit 1; }
+for _m in fail shapeless; do
+  if PATH="$FP_DIR:$PATH" FP_LOG="$FP_DIR/log" FP_MODE=$_m crqe_force_push_heads owner/repo 7 >/dev/null; then
+    echo "FAIL: failover: a $_m force-push read was accepted" >&2; exit 1
+  fi
+done
+rm -rf "$FP_DIR"
+echo "PASS: failover markers exempt only the requester's own just-posted trigger, on a head the PR had, force-pushed heads included (#2534, #2553, #2591)"
 
 # #1598: a Codex request the configured author posts AFTER a Phase 4b
 # substitute approval supersedes it, so gate (c) does not clear on that
@@ -261,6 +550,43 @@ reviewed-generation-covers-request|$COVERED_APPROVAL|0|cleared — Phase 4b subs
 invalid-generation-record|$INVALID_RECORD_APPROVAL|1|its recorded request generation is unreadable
 duplicate-generation-record|$DUP_RECORD_APPROVAL|1|not exactly one record
 CASES
+# #1619: malformed writer records must not become absent/manual records.
+# Both requests predate approval, so the timestamp fallback would wrongly
+# clear every damaged record. Exercise the production checker, not a copied
+# parser, with genuinely absent and valid records as positive controls.
+while IFS='|' read -r name body comments expected; do
+  printf '%s\n' "$comments" >"$DIR/comments"
+  printf '%s\n' "$COVERED_APPROVAL" | jq --arg body "$body" '.[0].body=$body' >"$DIR/reviews"
+  : >"$DIR/calls"
+  rc=0
+  PATH="$DIR/bin:$PATH" GH_TOKEN=stub FIXTURES="$DIR" CALLS="$DIR/calls" ACK_READ="$name" \
+    PR_BODY='Authoring-Agent: claude' PR_AUTHOR=nathanjohnpayne ISSUE_REACTIONS='[]' \
+    MERGEPATH_REVIEW_POLICY_PATH="$DIR/substitute-policy.yml" \
+    bash "$DIR/scripts/codex-review-check.sh" 99 owner/repo >"$DIR/out" 2>&1 || rc=$?
+  pattern='its recorded request generation is unreadable or not exactly one record'
+  [ "$expected" != 0 ] || pattern='cleared — Phase 4b substitute'
+  if [ "$rc" != "$expected" ] || ! grep -q "$pattern" "$DIR/out"; then
+    cat "$DIR/out"; echo "FAIL #1619 $name rc=$rc"; exit 1
+  fi
+  PASS=$((PASS + 1))
+  echo "PASS: #1619 $name"
+done <<CASES
+missing-closing-space|<!-- mergepath-p4b-request-generation: [123]-->|$RACE_COMMENTS|1
+unterminated-record|<!-- mergepath-p4b-request-generation: [123]|$RACE_COMMENTS|1
+missing-opening-space|<!-- mergepath-p4b-request-generation:[123] -->|$RACE_COMMENTS|1
+missing-colon|<!-- mergepath-p4b-request-generation [123] -->|$RACE_COMMENTS|1
+invalid-json|<!-- mergepath-p4b-request-generation: [123,] -->|$RACE_COMMENTS|1
+non-array-json|<!-- mergepath-p4b-request-generation: 123 -->|$RACE_COMMENTS|1
+non-numeric-id|<!-- mergepath-p4b-request-generation: ["123"] -->|$RACE_COMMENTS|1
+valid-plus-malformed|<!-- mergepath-p4b-request-generation: [123,124] --><!-- mergepath-p4b-request-generation: [123]-->|$RACE_COMMENTS|1
+malformed-plus-valid|<!-- mergepath-p4b-request-generation: [123]--><!-- mergepath-p4b-request-generation: [123,124] -->|$RACE_COMMENTS|1
+valid-plus-unterminated|<!-- mergepath-p4b-request-generation: [123,124] --><!-- mergepath-p4b-request-generation: [123]|$RACE_COMMENTS|1
+duplicate-valid-record|<!-- mergepath-p4b-request-generation: [123,124] --><!-- mergepath-p4b-request-generation: [123,124] -->|$RACE_COMMENTS|1
+manual-absent-record|Manual Phase 4b approval|$RACE_COMMENTS|0
+valid-covered-record|<!-- mergepath-p4b-request-generation: [123,124] -->|$RACE_COMMENTS|0
+valid-empty-record|<!-- mergepath-p4b-request-generation: [] -->|[]|0
+CASES
+
 # The supersession re-read failing rejects the candidate (fails closed).
 printf '%s\n' "$RACE_COMMENTS" >"$DIR/comments"
 printf '%s\n' "$COVERED_APPROVAL" >"$DIR/reviews"
@@ -430,8 +756,10 @@ fetch_scan_array() {
   esac
 }
 export BOT_LOGIN='chatgpt-codex-connector[bot]'
+export AUTHOR_IDENTITY=nathanjohnpayne
 export HEAD_SHA='abcdef0123456789000000000000000000000000'
 export REPO=owner/repo PR_NUMBER=99 REQUIRED_TIERS_JSON='["p0","p1"]'
+export DISCRETIONARY_TIERS_JSON='["p2","p3","nitpick"]'
 export CODEX_FAILURE_MARKERS_OK=false
 scan_codex_state >"$DIR/large-scan"
 jq -e '.review.id == 789 and (.review.body | length) == 262144
@@ -519,5 +847,238 @@ if [ "$rc" != 1 ] || ! grep -q 'no reviewer identity' "$DIR/out"; then
   cat "$DIR/out"; echo "FAIL reply-only checker status rc=$rc"; exit 1
 fi
 PASS=$((PASS + 1)); echo 'PASS: requester and checker reject threaded-reply-only clearance'
+
+# The real checker must bind a quoted YAML author key, too. Its old line
+# grep defaulted to nathanjohnpayne and accepted this base-author request.
+sed "s/^author_identity:.*/'author_identity': base-author/" "$DIR/substitute-policy.yml" >"$DIR/quoted-author-policy.yml"
+printf '%s\n' '[{"id":8203,"user":{"login":"base-author"},"created_at":"2026-09-14T00:09:00Z","body":"@codex review"}]' >"$DIR/comments"
+printf '%s\n' "$SUB_APPROVAL" >"$DIR/reviews"
+: >"$DIR/calls"
+rc=0
+PATH="$DIR/bin:$PATH" GH_TOKEN=stub FIXTURES="$DIR" CALLS="$DIR/calls" ACK_READ=none \
+  PR_BODY='Authoring-Agent: claude' PR_AUTHOR=base-author ISSUE_REACTIONS='[]' \
+  MERGEPATH_REVIEW_POLICY_PATH="$DIR/quoted-author-policy.yml" \
+  bash "$DIR/scripts/codex-review-check.sh" 99 owner/repo >"$DIR/out" 2>&1 || rc=$?
+if [ "$rc" != 1 ] || ! grep -q 'a Codex request by base-author' "$DIR/out"; then
+  cat "$DIR/out"; echo "FAIL parsed author checker: rc=$rc"; exit 1
+fi
+PASS=$((PASS + 1)); echo 'PASS: real checker rejects a later request by the parsed quoted-key author'
+
+# #1618: source the production Phase 4b helpers directly; never dispatch an
+# adapter to exercise request-generation authority. Candidate and base policies
+# deliberately disagree, as they can on trusted cross-repository orchestration.
+(
+  # shellcheck source=../scripts/phase-4b/lib.sh
+  . "$ROOT/scripts/phase-4b/lib.sh"
+  export MERGEPATH_REVIEW_POLICY_PATH="$DIR/candidate.yml"
+  export P4B_RESOLVE_BASE_POLICY="$DIR/base-resolver"
+  export P4B_TEST_BASE="$DIR/base.yml" P4B_TEST_RESOLVER_LOG="$DIR/resolver-log"
+  printf 'author_identity: candidate-author\n' >"$MERGEPATH_REVIEW_POLICY_PATH"
+  cat >"$P4B_RESOLVE_BASE_POLICY" <<'RESOLVER'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$P4B_TEST_RESOLVER_LOG"
+[ "${P4B_TEST_RESOLVER_FAIL:-0}" != 1 ] || exit 2
+resolved=$(mktemp)
+cp "$P4B_TEST_BASE" "$resolved"
+printf '%s\n' "$resolved"
+RESOLVER
+  chmod +x "$P4B_RESOLVE_BASE_POLICY"
+  gh_api_array() { printf '%s\n' "$P4B_TEST_COMMENTS"; }
+  P4B_TEST_COMMENTS='[{"id":8201,"user":{"login":"base-author"},"body":"@codex review"},{"id":8202,"user":{"login":"candidate-author"},"body":"@codex review"}]'
+  printf 'author_identity: base-author\n' >"$P4B_TEST_BASE"
+  captured=$(p4b_live_request_generation owner/repo 99)
+  [ "$captured" = '[8201]' ] || { echo "FAIL governing author capture: $captured"; exit 1; }
+  P4B_TEST_COMMENTS=$(printf '%s' "$P4B_TEST_COMMENTS" | jq -c '. + [{id:8203,user:{login:"base-author"},body:"@codex review"}]')
+  revalidated=$(p4b_live_request_generation owner/repo 99)
+  [ "$revalidated" = '[8201,8203]' ] && [ "$revalidated" != "$captured" ] \
+    || { echo "FAIL governing author revalidation: $revalidated"; exit 1; }
+  [ "$(wc -l <"$P4B_TEST_RESOLVER_LOG" | tr -d ' ')" = 2 ]
+  grep -q -- '--repo owner/repo --pr 99 --default-config .*candidate.yml --materialize-default' "$P4B_TEST_RESOLVER_LOG"
+  echo 'PASS: governing author capture and revalidation ignore divergent candidate identity'
+
+  # Execute the checker's actual author-assignment block against the same
+  # resolved flow-style base policy. Other legacy checker fields still reject
+  # full-flow configurations independently; author selection cannot diverge.
+  printf '%s\n' '{author_identity: base-author, codex: {enabled: true}}' >"$P4B_TEST_BASE"
+  checker_author_block=$(sed -n '/^AUTHOR_POLICY_JSON=/,/^  }$/p' "$ROOT/scripts/codex-review-check.sh")
+  [ -n "$checker_author_block" ] || { echo 'FAIL checker parsed-author assignment missing'; exit 1; }
+  checker_author=$(export CONFIG="$P4B_TEST_BASE"; eval "$checker_author_block"; printf '%s' "$AUTHOR_IDENTITY")
+  [ "$checker_author" = base-author ] \
+    || { echo "FAIL flow-style checker author: $checker_author"; exit 1; }
+  flow_generation=$(p4b_live_request_generation owner/repo 99)
+  [ "$flow_generation" = '[8201,8203]' ] \
+    || { echo "FAIL flow-style request generation: $flow_generation"; exit 1; }
+  echo 'PASS: valid flow YAML selects the same author in capture and production checker'
+  printf '%s\n' '{codex: {enabled: true}}' >"$P4B_TEST_BASE"
+  checker_author=$(export CONFIG="$P4B_TEST_BASE"; eval "$checker_author_block"; printf '%s' "$AUTHOR_IDENTITY")
+  [ "$checker_author" = nathanjohnpayne ]
+  echo 'PASS: checker parsed-author assignment preserves absent-key fallback'
+  for invalid in '{author_identity: ""}' '{author_identity: []}' '{author_identity: null}' '{author_identity: [broken'; do
+    printf '%s\n' "$invalid" >"$P4B_TEST_BASE"
+    rc=0; result=$(export CONFIG="$P4B_TEST_BASE"; eval "$checker_author_block"; printf '%s' "$AUTHOR_IDENTITY") || rc=$?
+    [ "$rc" = 3 ] && [ -z "$result" ] || { echo "FAIL checker invalid author: rc=$rc result=$result"; exit 1; }
+  done
+  echo 'PASS: checker rejects malformed-present author rather than using a default'
+
+  # Preserve the merge checker's absent-key default, but never repair a
+  # present invalid identity or unreadable policy with the candidate's login.
+  P4B_TEST_COMMENTS='[{"id":8301,"user":{"login":"nathanjohnpayne"},"body":"@codex review"}]'
+  printf 'codex:\n  enabled: true\n' >"$P4B_TEST_BASE"
+  [ "$(p4b_live_request_generation owner/repo 99)" = '[8301]' ]
+  echo 'PASS: absent governing author uses the shared-author compatibility default'
+  [ "$(p4b_governing_codex_enabled owner/repo 99)" = true ]
+  printf 'codex:\n  enabled: false\n' >"$P4B_TEST_BASE"
+  [ "$(p4b_governing_codex_enabled owner/repo 99)" = false ]
+  echo 'PASS: shared governing-policy reader preserves Codex enablement'
+
+  for invalid in 'author_identity: ""' 'author_identity: []' 'author_identity: null' 'author_identity: [broken'; do
+    printf '%s\n' "$invalid" >"$P4B_TEST_BASE"
+    rc=0; result=$(p4b_live_request_generation owner/repo 99) || rc=$?
+    [ "$rc" = 2 ] && [ -z "$result" ] || { echo "FAIL invalid governing author: rc=$rc result=$result"; exit 1; }
+  done
+  echo 'PASS: empty, non-scalar and malformed governing authors fail closed'
+  rc=0; result=$(P4B_TEST_RESOLVER_FAIL=1 p4b_live_request_generation owner/repo 99) || rc=$?
+  [ "$rc" = 2 ] && [ -z "$result" ] || { echo 'FAIL unreadable governing policy'; exit 1; }
+  printf 'author_identity: base-author\n' >"$P4B_TEST_BASE"
+  gh_api_array() { return 1; }
+  rc=0; result=$(p4b_live_request_generation owner/repo 99) || rc=$?
+  [ "$rc" = 2 ] && [ -z "$result" ] || { echo 'FAIL unreadable request history'; exit 1; }
+  gh_api_array() { printf '%s\n' '[{"user":{"login":"base-author"},"body":"@codex review"}]'; }
+  rc=0; result=$(p4b_live_request_generation owner/repo 99) || rc=$?
+  [ "$rc" = 2 ] && [ -z "$result" ] || { echo 'FAIL malformed request identity'; exit 1; }
+  echo 'PASS: unreadable policy/history and malformed request evidence fail closed'
+)
+PASS=$((PASS + 18))
+
+# #1512: exercise the real checker's per-invocation flag contracts. The fake
+# GitHub API exposes one red required context; approval and Codex evidence
+# then distinguish an ordinary clearance failure from gate-(a)'s CI result.
+sed 's/require_ci_green: false/require_ci_green: true/' "$DIR/default-policy.yml" >"$DIR/flag-policy.yml"
+FLAG_HEAD=abcdef0123456789000000000000000000000000
+FLAG_OLD_HEAD=1111111111111111111111111111111111111111
+FLAG_CODEX_COMMENT=$(jq -cn --arg head "$FLAG_HEAD" \
+  '{id:990,user:{login:"chatgpt-codex-connector[bot]"},created_at:"2026-09-14T00:05:00Z",body:("Codex Review: Didnt find any major issues.\nReviewed commit: " + $head)}')
+flag_reviews() {
+  # Three opinionated states for one registered, non-author reviewer.
+  jq -cn --arg head "$1" --arg old "$FLAG_OLD_HEAD" '
+    [
+      {user:{login:"nathanpayne-claude"},state:"APPROVED",commit_id:$head,submitted_at:"2026-09-14T00:02:00Z"},
+      {user:{login:"nathanpayne-claude"},state:"APPROVED",commit_id:$old,submitted_at:"2026-09-14T00:03:00Z"}
+    ]'
+}
+FLAG_OLD_LATEST=$(flag_reviews "$FLAG_HEAD")
+FLAG_HEAD_LATEST=$(printf '%s' "$FLAG_OLD_LATEST" | jq -c --arg head "$FLAG_HEAD" \
+  '. + [{user:{login:"nathanpayne-claude"},state:"APPROVED",commit_id:$head,submitted_at:"2026-09-14T00:04:00Z"}]')
+run_flag_checker() { # name reviews comments skip-ci require-head [reviews-fail]
+  local name=$1 reviews=$2 comments=$3 skip_ci=$4 require_head=$5 reviews_fail=${6:-0} rc=0
+  printf '%s\n' "$reviews" >"$DIR/reviews"
+  printf '%s\n' "$comments" >"$DIR/comments"
+  printf '[]\n' >"$DIR/ack"
+  : >"$DIR/calls"
+  PATH="$DIR/bin:$PATH" GH_TOKEN=stub FIXTURES="$DIR" CALLS="$DIR/calls" ACK_READ=flag-contract \
+    PR_BODY='' PR_AUTHOR=contributor ISSUE_REACTIONS='[]' REVIEWS_FAIL="$reviews_fail" BR_RETRY_SLEEP=0 \
+    MERGEPATH_REVIEW_POLICY_PATH="$DIR/flag-policy.yml" \
+    CODEX_REVIEW_CHECK_SKIP_CI="$skip_ci" CODEX_REVIEW_CHECK_REQUIRE_APPROVAL_ON_HEAD="$require_head" \
+    bash "$DIR/scripts/codex-review-check.sh" 99 owner/repo >"$DIR/flag-out" 2>&1 || rc=$?
+  printf '%s\n' "$rc" >"$DIR/flag-rc"
+}
+
+# The CI skip only skips gate (a): without either the reviewer approval or a
+# Codex signal, the real checker still returns its normal gate-failure exit 1.
+run_flag_checker skip-still-gates '[]' '[]' 1 ''
+if [ "$(cat "$DIR/flag-rc")" = 1 ] \
+   && grep -q 'gate (a): SKIPPED (codex.require_ci_green=false)' "$DIR/flag-out" \
+   && grep -q 'FAIL: no reviewer identity in available_reviewers' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 SKIP_CI skips red CI but reviewer and Codex clearance gates still block'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 SKIP_CI cleared a non-CI gate or did not skip gate (a)'; exit 1
+fi
+
+# With a current-head reviewer approval and anchored Codex verdict, the same
+# red CI blocks without SKIP_CI and clears with it.
+FLAG_HEAD_APPROVAL=$(jq -cn --arg head "$FLAG_HEAD" \
+  '[{user:{login:"nathanpayne-claude"},state:"APPROVED",commit_id:$head,submitted_at:"2026-09-14T00:04:00Z"}]')
+run_flag_checker red-ci-blocks "$FLAG_HEAD_APPROVAL" "[$FLAG_CODEX_COMMENT]" '' ''
+if [ "$(cat "$DIR/flag-rc")" = 1 ] && grep -q 'FAIL: CI not green: 1 non-passing check(s): Build (commit status)=FAILURE' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 red required CI blocks an otherwise-cleared review when SKIP_CI is absent'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 red required CI did not block without SKIP_CI'; exit 1
+fi
+run_flag_checker skip-red-ci-clears "$FLAG_HEAD_APPROVAL" "[$FLAG_CODEX_COMMENT]" 1 ''
+if [ "$(cat "$DIR/flag-rc")" = 0 ] \
+   && grep -q 'gate (a): SKIPPED (codex.require_ci_green=false)' "$DIR/flag-out" \
+   && grep -q 'gate (b): latest-state APPROVED by nathanpayne-claude' "$DIR/flag-out" \
+   && grep -q 'gate (c): cleared' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 SKIP_CI permits the other independently-cleared gates to decide'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 SKIP_CI did not preserve independent clearance gates'; exit 1
+fi
+
+# Without the head pin, the latest approval on an old head preserves legacy
+# behavior. With it, the latest opinionated state must itself name HEAD: an
+# earlier HEAD approval cannot survive a newer approval of an older commit.
+run_flag_checker old-approval-default "$FLAG_OLD_LATEST" "[$FLAG_CODEX_COMMENT]" 1 ''
+if [ "$(cat "$DIR/flag-rc")" = 0 ]; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 REQUIRE_APPROVAL_ON_HEAD unset preserves the existing any-head approval behavior'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 default approval behavior changed'; exit 1
+fi
+run_flag_checker latest-old-head-strict "$FLAG_OLD_LATEST" "[$FLAG_CODEX_COMMENT]" 1 1
+if [ "$(cat "$DIR/flag-rc")" = 1 ] \
+   && grep -q 'FAIL: no reviewer identity in available_reviewers has a latest-state APPROVED review' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 strict head pin rejects a newer old-head opinionated approval despite an earlier HEAD approval'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 strict head pin accepted an old-head latest approval'; exit 1
+fi
+run_flag_checker latest-head-strict "$FLAG_HEAD_LATEST" "[$FLAG_CODEX_COMMENT]" 1 1
+if [ "$(cat "$DIR/flag-rc")" = 0 ] \
+   && grep -q 'gate (b): latest-state APPROVED by nathanpayne-claude' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 strict head pin accepts the latest opinionated approval when it names exact HEAD'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 strict head pin rejected the latest exact-head approval'; exit 1
+fi
+
+# A real API-read failure remains infrastructure exit 3, distinct from the
+# normal not-cleared exit 1 above.
+run_flag_checker review-read-infra "$FLAG_HEAD_APPROVAL" "[$FLAG_CODEX_COMMENT]" 1 1 1
+if [ "$(cat "$DIR/flag-rc")" = 3 ] && grep -q 'failed to fetch reviews' "$DIR/flag-out"; then
+  PASS=$((PASS + 1)); echo 'PASS: #1512 an unreadable reviews API remains infrastructure exit 3'
+else
+  cat "$DIR/flag-out"; echo 'FAIL: #1512 reviews API failure did not remain infrastructure exit 3'; exit 1
+fi
+
+# Review trigger column (specs/codex_request_evidence.md § Codex provider
+# surfaces). The rows copy the live Summary shape: a relative-time status cell,
+# a Failed cell carrying its retry hint, and the trigger cell last. Only
+# `Manual request` is a requested run; `PR opened` and `New commits` are App
+# runs nobody asked for; any other text, or a row without the trigger cell, is
+# never classified as manual.
+summary_trigger_case() { # name trigger-cell status-cell expected-kind|null
+  local body comments got
+  # shellcheck disable=SC2016 # Literal Markdown commit cell, not shell substitution.
+  body=$(printf '<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 {} -->\n\n## Codex Review Summary\n\n| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| 📝 **Code Review** | %s | `abcdef0` |%s\n' "$3" "$2")
+  comments=$(jq -nc --arg b "$body" '[{id:9001,user:{login:"chatgpt-codex-connector[bot]"},created_at:"2026-10-29T00:51:58Z",updated_at:"2026-10-29T00:58:07Z",body:$b}]')
+  got=$(crqe_select_codex_review_summary "$comments" 'chatgpt-codex-connector[bot]' abcdef0123456789000000000000000000000000) \
+    || { echo "FAIL: summary trigger $1: selector failed" >&2; exit 1; }
+  if [ "$(printf '%s' "$got" | jq -r 'if . == null then "null" else .trigger_kind end')" = "$4" ]; then
+    PASS=$((PASS + 1)); echo "PASS: summary trigger $1 -> $4"
+  else
+    echo "FAIL: summary trigger $1: $got" >&2; exit 1
+  fi
+}
+SUMMARY_DONE='✅ **Completed** <relative-time datetime="2026-10-29T16:46:28.410836Z">2026-10-29T16:46:28.410836Z</relative-time>'
+SUMMARY_RUNNING='🔄 **Running** since <relative-time datetime="2026-10-29T00:58:05.173856Z">2026-10-29T00:58:05.173856Z</relative-time>'
+# shellcheck disable=SC2016 # The provider's own backticked retry hint.
+SUMMARY_FAILED='⚠️ **Failed** <relative-time datetime="2026-10-28T15:36:42.021653Z">2026-10-28T15:36:42.021653Z</relative-time><br/>We couldn’t complete this review. Comment `@codex review` to try again.'
+summary_trigger_case manual-completed ' Manual request |' "$SUMMARY_DONE" manual
+summary_trigger_case manual-running ' Manual request |' "$SUMMARY_RUNNING" manual
+summary_trigger_case manual-case-and-space '   manual REQUEST   |' "$SUMMARY_DONE" manual
+summary_trigger_case pr-opened ' PR opened |' "$SUMMARY_DONE" unsolicited
+summary_trigger_case pr-opened-failed ' PR opened |' "$SUMMARY_FAILED" unsolicited
+summary_trigger_case new-commits ' New commits |' "$SUMMARY_RUNNING" unsolicited
+summary_trigger_case unseen-value ' Ready for review |' "$SUMMARY_DONE" unknown
+summary_trigger_case near-miss-manual ' Manual requests |' "$SUMMARY_DONE" unknown
+summary_trigger_case manual-prose ' Manual request by @someone |' "$SUMMARY_DONE" unknown
+summary_trigger_case missing-column '' "$SUMMARY_DONE" null
 
 echo "test_codex_request_evidence: $PASS blocked/query cases and carry-forward success passed"

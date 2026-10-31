@@ -23,6 +23,11 @@ TESTS=(
   # a local regex, which is exactly how the divergence arose.
   "tests/test_pr_body_contract_parity.sh"
   "tests/test_gh_as_reviewer.sh"
+  # The REST transport both wrappers take on a cloud surface, where every
+  # `gh pr` / `gh issue` subcommand is GraphQL and the proxy refuses it
+  # (#1057 item A, #1542): the closed argv grammar, each verb's REST calls,
+  # and the byline readback that is the only call-time enforcement on Codex.
+  "tests/test_gh_rest_transport.sh"
   "tests/test_gh_wrapper_parallel.sh"
   "tests/test_gh_pr_guard.sh"
   "tests/test_check_no_bare_gh_writes.sh"
@@ -32,6 +37,11 @@ TESTS=(
   # CI entrypoint, so it went red on main unnoticed after #1085 reshaped the
   # trigger write.
   "tests/test_identity_check_fail_closed.sh"
+  # The checker every wrapper above runs before a write: its user-held
+  # write-identity contract (#1057) and the bounded CI-app mode for thread
+  # resolution, which must accept exactly one configured app and widen no
+  # other mode (#2726). Propagated since #284 but never run in CI until then.
+  "tests/test_identity_check.sh"
 )
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -42,6 +52,10 @@ fi
 FAILED=0
 if ! python3 "$REPO_ROOT/tests/test_owner_admin_override.py"; then
   echo "check_gh_as_author: FAIL (owner admin override)" >&2
+  FAILED=1
+fi
+if ! python3 "$REPO_ROOT/tests/test_gh_comment_trigger_guard.py"; then
+  echo "check_gh_as_author: FAIL (comment trigger guard)" >&2
   FAILED=1
 fi
 for rel in "${TESTS[@]}"; do

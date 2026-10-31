@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # scripts/codex-review-check.sh — Phase 4 external-review merge gate
 #
+# Runtime prerequisite: one working structured YAML parser, selected by
+# policy_yaml_to_json: mikefarah yq v4, Python3 with PyYAML, or Ruby YAML/JSON.
+# This applies to direct callers as well as the merge-clearance dispatcher.
+# Missing/broken parsers remain configuration errors (exit3), never clearance.
+# Caller inventory and an environment probe: docs/agents/testing-requirements.md
+# section "Direct checker runtime prerequisites" (#2314).
+#
 # Verifies that a pull request is ready to merge under the Phase 4
 # external-review flow. Read-only. Never merges, labels, or comments
 # on the PR.
@@ -8,6 +15,9 @@
 # Usage:
 #   scripts/codex-review-check.sh <PR_NUMBER> [REPO]
 #   scripts/codex-review-check.sh --approval-readiness-only <PR_NUMBER> [REPO]
+#   scripts/codex-review-check.sh --require-codex-on-head <PR_NUMBER> [REPO]
+#     Full checks, but no older-content carry-forward or Phase 4b substitute
+#     may stand in for Codex on this exact head (#2139).
 #
 # Arguments:
 #   PR_NUMBER  Required. The pull request number (integer).
@@ -92,10 +102,13 @@
 #       separately and can still refuse. Most often it wants an APPROVED
 #       review OBJECT, and a Codex issue-comment verdict is not a review
 #       object — so a verdict-cleared PR can stay BLOCKED / REVIEW_REQUIRED on
-#       every repo with required_approving_review_count >= 1 (all nine
-#       consumers; the hub is 0). See mergepath#1059.
+#       any repo whose branch protection sets required_approving_review_count
+#       >= 1. That count is per-repo and changes over time, so read the target
+#       repo's protection rather than assuming one (#2552). See mergepath#1059.
 #   1   At least one gate condition fails. A one-line reason is
 #       printed to stderr.
+#   2   Diagnostic or strict substitution probe: Codex cannot report because
+#       a fresh account/connection block prevents current-request clearance.
 #   3   API / infrastructure error. Error message on stderr.
 #
 # Design notes:
@@ -155,6 +168,15 @@ if [ -r "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh" ]; then
   # shellcheck source=lib/codex-request-evidence.sh
   . "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh"
 fi
+
+# Governing author authority uses the same YAML parser as Phase 4b capture,
+# including valid flow-style/quoted keys. A missing parser is unknown authority.
+if [ ! -r "$__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh" ]; then
+  echo "ERROR: governing-policy parser missing: $__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh" >&2
+  exit 3
+fi
+# shellcheck source=lib/feedback-policy-helpers.sh
+. "$__CODEX_CHECK_DIR/lib/feedback-policy-helpers.sh"
 
 # --- Codex failure-marker regexes (#722) ------------------------------------
 # Source the shared usage-limit / not-connected marker patterns so gate (c)'s
@@ -247,11 +269,13 @@ fi
 # one is not.
 DIAGNOSTIC_SIGNAL_ONLY=0
 APPROVAL_READINESS_ONLY=0
+REQUIRE_CODEX_ON_HEAD=0
 _crc_positional=()
 for _arg in "$@"; do
   case "$_arg" in
     --diagnostic-signal-only) DIAGNOSTIC_SIGNAL_ONLY=1 ;;
     --approval-readiness-only) APPROVAL_READINESS_ONLY=1 ;;
+    --require-codex-on-head) REQUIRE_CODEX_ON_HEAD=1 ;;
     *) _crc_positional+=("$_arg") ;;
   esac
 done
@@ -262,8 +286,13 @@ if [ "$DIAGNOSTIC_SIGNAL_ONLY" = "1" ] && [ "$APPROVAL_READINESS_ONLY" = "1" ]; 
   exit 3
 fi
 
+if [ "$REQUIRE_CODEX_ON_HEAD" = 1 ] && { [ "$DIAGNOSTIC_SIGNAL_ONLY" = 1 ] || [ "$APPROVAL_READINESS_ONLY" = 1 ]; }; then
+  echo "ERROR: --require-codex-on-head requires the full clearance check" >&2
+  exit 3
+fi
+
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-  echo "Usage: $0 [--diagnostic-signal-only|--approval-readiness-only] <PR_NUMBER> [REPO]" >&2
+  echo "Usage: $0 [--diagnostic-signal-only|--approval-readiness-only|--require-codex-on-head] <PR_NUMBER> [REPO]" >&2
   exit 3
 fi
 
@@ -508,6 +537,7 @@ SKIP_REVIEWER_APPROVAL="$DIAGNOSTIC_SIGNAL_ONLY"
 # question "did Codex speak on this head", and splitting them would let a
 # caller ask half of it.
 REQUIRE_HEAD_SIGNAL="$DIAGNOSTIC_SIGNAL_ONLY"
+[ "$REQUIRE_CODEX_ON_HEAD" != 1 ] || REQUIRE_HEAD_SIGNAL=1
 
 # Honor codex.allow_phase_4b_substitute. When true (default), gate (c)
 # also accepts an APPROVED review on the current HEAD from an
@@ -530,6 +560,9 @@ REQUIRE_HEAD_SIGNAL="$DIAGNOSTIC_SIGNAL_ONLY"
 # CodeRabbit wait and reopen the pre-review merge race. Unset ⇒ policy value.
 ALLOW_PHASE_4B_SUBSTITUTE=${CODEX_REVIEW_CHECK_ALLOW_PHASE_4B_SUBSTITUTE:-$(codex_field allow_phase_4b_substitute)}
 ALLOW_PHASE_4B_SUBSTITUTE=${ALLOW_PHASE_4B_SUBSTITUTE:-true}
+# #2139 under-threshold substitution needs Codex itself on this head, with
+# ordinary finding disposition and approval checks still active.
+[ "$REQUIRE_CODEX_ON_HEAD" != 1 ] || ALLOW_PHASE_4B_SUBSTITUTE=false
 case "$ALLOW_PHASE_4B_SUBSTITUTE" in
   true|false) ;;
   *)
@@ -547,8 +580,13 @@ if [ -z "$REVIEWERS" ]; then
   echo "ERROR: no available_reviewers found in $CONFIG" >&2
   exit 3
 fi
-AUTHOR_IDENTITY=$(grep -m1 '^author_identity:' "$CONFIG" | awk '{print $2}' | sed -E "s/^[\"']//; s/[\"']\$//" || true)
-AUTHOR_IDENTITY="${AUTHOR_IDENTITY:-nathanjohnpayne}"
+# The resolver above selected governing CONFIG; parse it rather than guessing
+# authority from line shape. Malformed present identities never use the default.
+AUTHOR_POLICY_JSON=$(policy_yaml_to_json "$CONFIG") &&
+  AUTHOR_IDENTITY=$(crqe_policy_author "$AUTHOR_POLICY_JSON") || {
+    echo "ERROR: governing policy author_identity could not be read" >&2
+    exit 3
+  }
 
 # --- logging helpers --------------------------------------------------------
 
@@ -864,6 +902,7 @@ while :; do
                     nodes {
                       __typename
                       ... on CheckRun {
+                        databaseId
                         name
                         status
                         conclusion
@@ -1002,6 +1041,7 @@ ROLLUP_JSON=$(echo "$ROLLUP_CONTEXTS" | jq '{
       # the suite is finer than the rule and reintroduces the #1076 permanent
       # deadlock, refuted by #1119.
       appId: ((.checkSuite.app.databaseId // "") | tostring),
+      databaseId: .databaseId,
       startedAt: .startedAt,
       completedAt: .completedAt,
       # A StatusContext (legacy commit status) has NO startedAt/completedAt —
@@ -1727,6 +1767,17 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
       else (sort_by(if .completedAt != "" then .completedAt else .startedAt end) | last)
       end;
 
+  # Controlled API generations are ordered by opening, never by completion.
+  # databaseId is server-assigned, monotonic and breaks whole-second ties.
+  # An incomplete older opening is retired by a newer generation; native
+  # Actions and foreign-app/legacy status contracts remain unchanged.
+  def current_api_entry:
+    if all(.[]; (.databaseId | type == "number") and .databaseId > 0
+        and .databaseId <= 9007199254740991 and (.databaseId | floor) == .databaseId)
+    then sort_by(.databaseId) | last
+    else {label:(.[0].label),result:"ERROR",status:"COMPLETED"}
+    end;
+
   # One required context, TWO surfaces. GitHub satisfies a required context
   # from a check run OR a legacy commit status, and when a head carries both
   # under one name it evaluates each as its own row and holds the merge until
@@ -1781,7 +1832,8 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
               and (($labels[0]) as $ctx | ($lineage_contexts | index($ctx)) != null)
            then (([$of_kind[] | (.lineage // "")] | unique)) as $lineages
                 | ($lineages[] as $l
-                   | ($of_kind | map(select((.lineage // "") == $l)) | current_entry))
+                   | ($of_kind | map(select((.lineage // "") == $l))
+                    | if $l == "api" then current_api_entry else current_entry end))
            else ($of_kind | current_entry)
            end) ];
 
@@ -1803,6 +1855,7 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq \
         # otherwise every legacy status compares equal and the winner is
         # whichever node sorted last, letting an older SUCCESS hide the current
         # FAILURE.
+        databaseId: (.databaseId // null),
         startedAt: (.startedAt // .createdAt // ""),
         completedAt: (.completedAt // .createdAt // ""),
         isRequired: .isRequired,
@@ -1993,10 +2046,35 @@ if [ -n "$ANNEX_WORKFLOW_NAME" ]; then
   # freely-editable display name, so match on the known, fixed annex
   # filename instead. A StatusContext (no checkSuite at all) safely
   # resolves workflowPath to "" and can never collide with this literal.
-  ANNEX_WORKFLOW_MATCHES=$(echo "$ANNEX_SCAN_ROLLUP_JSON" | jq --arg workflow_path "repo_lint_local.yml" '
+  #
+  # #2563: match the annex's JOBS, not everything GitHub filed under its suite.
+  # A check run POSTed through the Checks API with the Actions token coalesces
+  # into whichever Actions suite was created first on the head (the #1215
+  # projection comment above), so the Codex P1 gate's lease runs ("Codex P1
+  # unresolved threads", still in progress) can carry this workflowPath on a
+  # head where the annex itself is green. Read as annex results, an in-flight
+  # lease is a non-passing entry, and the FAIL line names the wrong workflow
+  # (nathanjohnpayne/fiveacross#1953, head ab17bfa2). The annex's own jobs are
+  # job-native runs, which Actions stamps with an externalId; the projection
+  # already classifies the API-POSTed ones as lineage "api". Drop those here
+  # and leave them to the required-check path, which judges them under their
+  # own context. `!= "api"` rather than `== "native"` so an entry the
+  # projection could not classify stays in the scan: the degraded shape is the
+  # pre-#2563 false red, not a blind scan.
+  ANNEX_WORKFLOW_SUITE_MATCHES=$(echo "$ANNEX_SCAN_ROLLUP_JSON" | jq --arg workflow_path "repo_lint_local.yml" '
     [.statusCheckRollup[] | select((.workflowPath // "") == $workflow_path)]
   ')
+  ANNEX_WORKFLOW_MATCHES=$(echo "$ANNEX_WORKFLOW_SUITE_MATCHES" | jq '
+    [.[] | select((.lineage // "") != "api")]
+  ')
   ANNEX_WORKFLOW_MATCH_COUNT=$(echo "$ANNEX_WORKFLOW_MATCHES" | jq 'length')
+  ANNEX_WORKFLOW_FOREIGN=$(echo "$ANNEX_WORKFLOW_SUITE_MATCHES" | jq -c '
+    [.[] | select((.lineage // "") == "api") | "\(.name // .context // "?")=\(.conclusion // .state // "")"] | unique
+  ')
+  ANNEX_WORKFLOW_FOREIGN_COUNT=$(echo "$ANNEX_WORKFLOW_FOREIGN" | jq 'length')
+  if [ "$ANNEX_WORKFLOW_FOREIGN_COUNT" -gt 0 ]; then
+    log "gate (a): $ANNEX_WORKFLOW_FOREIGN_COUNT Checks-API check run(s) filed under the repo_lint_local.yml annex workflow's suite were not produced by an annex job (no externalId) and are left to the required-check path rather than read as annex results (#2563): $(echo "$ANNEX_WORKFLOW_FOREIGN" | jq -r 'join(", ")')"
+  fi
   if [ "$ANNEX_WORKFLOW_MATCH_COUNT" -eq 0 ] && [ "$ANNEX_UNFILTERED" = "true" ]; then
     log "gate (a): repo_lint_local.yml annex workflow ($ANNEX_WORKFLOW_NAME) has an unfiltered pull_request trigger but has not reported anything yet for $HEAD_SHA_FOR_ANNEX (#655 round 8) — treating as not-yet-clean rather than silently passing, since it is guaranteed to eventually run."
     BAD_CHECKS=$(echo "$BAD_CHECKS" | jq --arg workflow "$ANNEX_WORKFLOW_NAME" '(. + [{label: "(not yet reported)", workflow: $workflow, result: "PENDING"}]) | unique')
@@ -2106,21 +2184,28 @@ else
     fi
   fi
 fi
-BAD_COUNT=$(echo "$BAD_CHECKS" | jq 'length')
+# #2563: count the lines the FAIL message prints, not the entries behind them.
+# BAD_CHECKS keeps one winner per surface and, for the guarded contexts, per
+# lineage (#1193, #1215), so one red required context can stand there twice, a
+# job-native FAILURE and a Checks-API FAILURE of the same name, and the two
+# render as one identical line that `unique` below then collapses. Taking the
+# count from BAD_CHECKS announced "3 non-passing check(s)" over a list of two.
+BAD_SUMMARY_LINES=$(echo "$BAD_CHECKS" | jq -c '
+  # Name the surface for a legacy commit status (#1193). Splitting the two
+  # surfaces creates a blocking cause an operator has no other way to see: a
+  # red commit status under a required name whose same-named check run is
+  # green. Unannotated, that reads as the gate contradicting a check run
+  # everyone can see is passing. CheckRun stays unannotated because it is
+  # what every pre-existing entry in this summary already was.
+  [.[] | (if .workflow == "" then .label else "\(.workflow)/\(.label)" end)
+       + (if (.kind // "") == "StatusContext" then " (commit status)" else "" end)
+       + "=" + .result]
+  | unique
+')
+BAD_COUNT=$(echo "$BAD_SUMMARY_LINES" | jq 'length')
 
 if [ "$BAD_COUNT" -gt 0 ]; then
-  SUMMARY=$(echo "$BAD_CHECKS" | jq -r '
-    # Name the surface for a legacy commit status (#1193). Splitting the two
-    # surfaces creates a blocking cause an operator has no other way to see: a
-    # red commit status under a required name whose same-named check run is
-    # green. Unannotated, that reads as the gate contradicting a check run
-    # everyone can see is passing. CheckRun stays unannotated because it is
-    # what every pre-existing entry in this summary already was.
-    [.[] | (if .workflow == "" then .label else "\(.workflow)/\(.label)" end)
-         + (if (.kind // "") == "StatusContext" then " (commit status)" else "" end)
-         + "=" + .result]
-    | unique | join(", ")
-  ')
+  SUMMARY=$(echo "$BAD_SUMMARY_LINES" | jq -r 'join(", ")')
   fail_gate "CI not green: $BAD_COUNT non-passing check(s): $SUMMARY"
 fi
 
@@ -2176,7 +2261,7 @@ crc_select_codex_review_summary() {
 
 # BEGIN codex_block_marker_selector
 # Select the newest account-/connection-level BLOCK marker on this head, as
-# `{reason, created_at}` or `null` (#722).
+# `{reason, created_at, comment_id}` or `null` (#722).
 #
 # Extracted verbatim from its single call site so the selection is assertable
 # without driving the whole gate (#839): the barrier's escalate-instead-of-wait
@@ -2213,7 +2298,7 @@ crc_select_codex_block_marker() {
       | { reason: $reason, created_at: .created_at, id: .id }
     ]
     | max_by([.created_at, .id]) // null
-    | if . != null then del(.id) else . end
+    | if . != null then .comment_id = .id | del(.id) else . end
   '
 }
 # END codex_block_marker_selector
@@ -2313,9 +2398,15 @@ if [ "$CODEX_ENABLED" = "true" ]; then
   # NON-verdict bot comment. Diagnostic only — folded into the gate (c)
   # failure message, never into the clearance decision. Shares the regexes
   # with the live trigger script via scripts/lib/codex-failure-markers.sh.
+  # The shared filter then binds it to the latest exact author request and
+  # retains any newer Running/unknown observation instead of declaring a block.
   if [ "$CODEX_FAILURE_MARKERS_OK" = "true" ]; then
     CODEX_BLOCKED_JSON=$(crc_select_codex_block_marker "$ISSUE_COMMENTS_JSON" "$BOT_LOGIN" \
       "$REACTION_THRESHOLD" "$CODEX_USAGE_LIMIT_MARKER_RE" "$CODEX_NOT_CONNECTED_MARKER_RE")
+    CODEX_BLOCK_REQUEST=$(crqe_select_trigger "$ISSUE_COMMENTS_JSON" "$AUTHOR_IDENTITY" "") \
+      || die 3 "cannot select the author request for provider-block diagnostics"
+    CODEX_BLOCKED_JSON=$(crqe_filter_provider_block "$CODEX_BLOCKED_JSON" "$CODEX_BLOCK_REQUEST" "$CODEX_SUMMARY_JSON") \
+      || die 3 "cannot order the provider refusal against the current request"
     CODEX_BLOCKED_REASON=$(echo "$CODEX_BLOCKED_JSON" | jq -r 'if . == null then "" else .reason end')
     CODEX_BLOCKED_TIME=$(echo "$CODEX_BLOCKED_JSON" | jq -r 'if . == null then "" else .created_at end')
     if [ -n "$CODEX_BLOCKED_REASON" ]; then
@@ -2333,7 +2424,11 @@ if [ "$CODEX_ENABLED" = "true" ]; then
   if [ "$REQUIRE_HEAD_SIGNAL" = "1" ]; then
     # #814: the caller is asking whether Codex spoke on THIS head. A
     # same-content verdict on an older commit is not that answer.
-    log "codex verdict carry-forward: SKIPPED (--diagnostic-signal-only — current-head signal required)"
+    if [ "$DIAGNOSTIC_SIGNAL_ONLY" = 1 ]; then
+      log "codex verdict carry-forward: SKIPPED (--diagnostic-signal-only — current-head signal required)"
+    else
+      log "codex verdict carry-forward: SKIPPED (--require-codex-on-head)"
+    fi
   elif [ -x "$CARRY_BIN" ]; then
     # #1092: capture the helper's stderr instead of discarding it. Sending it
     # to /dev/null is why an rc=126 ("Argument list too long") went unnoticed
@@ -2390,12 +2485,10 @@ crc_render_request_evidence() {
   [ -r "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh" ] || return 1
   # shellcheck source=lib/codex-request-evidence.sh
   . "$__CODEX_CHECK_DIR/lib/codex-request-evidence.sh" || return 1
-  local trigger id posted age reactions ack=unknown review budget ack_budget summary_advice diagnostic_comments
-  # The request helper writes exactly this literal. Prefilter only diagnostic
-  # candidates, then leave author/freshness/order semantics with the shared
-  # selector that requester deduplication also uses.
-  diagnostic_comments=$(printf '%s\n' "$ISSUE_COMMENTS_JSON" | jq -c '[.[] | select((.body // "") == "@codex review")]') || return 1
-  trigger=$(crqe_select_trigger "$diagnostic_comments" "$AUTHOR_IDENTITY" "$REACTION_THRESHOLD") || return 1
+  local trigger id posted age reactions ack=unknown review budget ack_budget summary_advice
+  # Share the case-insensitive complete-command, author, freshness and ordering
+  # contract with requester deduplication, without narrowing its input first.
+  trigger=$(crqe_select_trigger "$ISSUE_COMMENTS_JSON" "$AUTHOR_IDENTITY" "$REACTION_THRESHOLD") || return 1
   review=$(crc_select_head_review "$REVIEWS_JSON" "$BOT_LOGIN" "$HEAD_SHA" "$COMMENTS_JSON") || return 1
   log "request evidence (informational; BLOCKED unchanged):"
   # Independent observations: an older terminal artifact must not hide a newer run.
@@ -2439,6 +2532,40 @@ REVIEWS_JSON=$(fetch_api_array "repos/$REPO/pulls/$PR_NUMBER/reviews" "reviews")
 COMMENTS_JSON='[]'
 if [ "$CODEX_ENABLED" = "true" ] && [ "$APPROVAL_READINESS_ONLY" != "1" ]; then
   COMMENTS_JSON=$(fetch_api_array "repos/$REPO/pulls/$PR_NUMBER/comments" "inline comments")
+fi
+
+# A refusal may arrive after trigger-only returned. Route it before the
+# approval gate, so the substitution caller does not poll an unavailable
+# provider while also waiting for an approval. Existing exact-head responses
+# retain their ordinary grading; this branch never grants clearance.
+if [ "$REQUIRE_CODEX_ON_HEAD" = 1 ] && [ -n "$CODEX_BLOCKED_REASON" ] \
+   && [ -z "$CODEX_HEAD_VERDICT_ANY_TIME" ]; then
+  BLOCKED_HEAD_REVIEW=$(crc_select_head_review "$REVIEWS_JSON" "$BOT_LOGIN" "$HEAD_SHA" "$COMMENTS_JSON") \
+    || die 3 "cannot inspect exact-head review evidence for the substitution refusal"
+  if [ "$BLOCKED_HEAD_REVIEW" = null ]; then
+    die 2 "human_attention_required: Codex reported '$CODEX_BLOCKED_REASON' @ $CODEX_BLOCKED_TIME; it cannot report on $HEAD_SHA"
+  fi
+fi
+
+# #2874: on a provenance-verified Dependabot PR, the Dependabot-only approver
+# identities (dependabot_reviewer_identities) count as reviewers too, so the
+# automated approval clears a `needs-external-review` label the way the general
+# reviewer PAT it replaced did. The Merge clearance gate already judges such a
+# PR by its Dependabot arm first. Any other PR, a "not Dependabot-only" verdict
+# (rc 1), an unreadable one (rc 3) or a missing helper keeps
+# available_reviewers alone: the extra standing is granted only on proof.
+if [ "$PR_AUTHOR" = "dependabot[bot]" ] && [ -n "$(read_dependabot_reviewer_identities)" ] \
+   && [ -r "$__CODEX_CHECK_DIR/lib/dependabot-commit-provenance.sh" ]; then
+  # shellcheck source=lib/dependabot-commit-provenance.sh
+  . "$__CODEX_CHECK_DIR/lib/dependabot-commit-provenance.sh"
+  __dep_rc=0
+  dependabot_commit_provenance "$REPO" "$PR_NUMBER" "$HEAD_SHA" || __dep_rc=$?
+  if [ "$__dep_rc" = 0 ]; then
+    REVIEWERS=$(read_dependabot_approvers)
+    log "Dependabot provenance verified: Dependabot-only approvers count as reviewers on this PR"
+  else
+    log "Dependabot provenance not established (rc $__dep_rc): Dependabot-only approvers do not count"
+  fi
 fi
 
 # Build a JSON array of reviewer logins for the filter.
@@ -2564,6 +2691,28 @@ if [ -z "$APPROVING_REVIEWER" ]; then
       fail_gate "no reviewer identity in available_reviewers has a latest-state APPROVED review on current HEAD $HEAD_SHA"
     fi
     crc_request_evidence
+    # #2550: say so when an approval exists but was discounted as
+    # same-agent. That approval is the intended clearance on a PR outside
+    # Phase 4, which this gate does not judge; point at the gate that does.
+    # Message only: the decision and exit code are unchanged.
+    DISCOUNTED_SAME_AGENT_APPROVAL=""
+    if [ -n "$GATE_B_SAME_AGENT_REVIEWER" ]; then
+      DISCOUNTED_SAME_AGENT_APPROVAL=$(echo "$REVIEWS_JSON" | jq -r \
+        --arg reviewer "$GATE_B_SAME_AGENT_REVIEWER" \
+        --arg sha "$HEAD_SHA" \
+        --arg require_head "$REQUIRE_APPROVAL_ON_HEAD" '
+          [ .[]
+            | select(.user.login == $reviewer)
+            | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")
+          ]
+          | max_by(.submitted_at)
+          | if . != null and .state == "APPROVED" and ($require_head != "1" or .commit_id == $sha)
+            then $reviewer else empty end
+      ' 2>/dev/null || true)
+    fi
+    if [ -n "$DISCOUNTED_SAME_AGENT_APPROVAL" ]; then
+      fail_gate "no qualifying reviewer approval cleared gate (b): the latest-state APPROVED review from the authoring agent's own reviewer identity ($DISCOUNTED_SAME_AGENT_APPROVAL) is discounted by this Phase 4 gate under the no-self-approve rule, and the same-agent anchored Codex review/verdict fallback (branch 2) did not apply (codex.enabled=$CODEX_ENABLED; Authoring-Agent: ${AUTHORING_AGENT:-not set}; threshold: $REACTION_THRESHOLD). On a PR under external_review_threshold with no external_review_paths match and no needs-external-review label, that approval is the intended clearance and this gate does not apply: run scripts/merge-clearance-gate.sh <PR#> for the threshold-aware decision, and when CodeRabbit was rate-limited also require exact-head Codex clearance with scripts/codex-review-check.sh --require-codex-on-head <PR#> before approving"
+    fi
     fail_gate "no reviewer identity in available_reviewers has a latest-state APPROVED review, and same-agent + anchored Codex review/verdict fallback (branch 2) did not apply (codex.enabled=$CODEX_ENABLED; Authoring-Agent: ${AUTHORING_AGENT:-not set}; matched reviewer: ${SAME_AGENT_REVIEWER:-none}; threshold: $REACTION_THRESHOLD)"
   fi
 else
@@ -2910,10 +3059,14 @@ if [ "$CLEARED" != "true" ] && [ "$ALLOW_PHASE_4B_SUBSTITUTE" = "true" ]; then
         --arg login "$PHASE_4B_LOGIN" --arg at "$PHASE_4B_TIME" --arg sha "$HEAD_SHA" '
           [ .[] | select(.user.login == $login and .submitted_at == $at and .commit_id == $sha) ]
           | last
-          | [ (.body // "") | scan("<!-- mergepath-p4b-request-generation: ([^>]*) -->") | .[0] ]
-          | if length == 0 then "none"
-            elif length > 1 then "invalid"
-            else (last | try (fromjson | select(type == "array" and all(.[]; type == "number")) | tojson) catch "invalid")
+          | (.body // "") as $body
+          # #1619: count prefixes independently: a damaged/unterminated
+          # record is unreadable evidence, never an absent manual record.
+          | [ $body | scan("<!-- mergepath-p4b-request-generation") ] as $prefixes
+          | [ $body | scan("<!-- mergepath-p4b-request-generation: ([^>]*) -->") | .[0] ] as $records
+          | if ($prefixes | length) == 0 then "none"
+            elif ($prefixes | length) != 1 or ($records | length) != 1 then "invalid"
+            else ($records[0] | try (fromjson | select(type == "array" and all(.[]; type == "number")) | tojson) catch "invalid")
                  // "invalid"
             end' 2>/dev/null || printf invalid)
       if ! declare -F crqe_trigger_generation >/dev/null 2>&1 || ! declare -F crqe_latest_trigger_time >/dev/null 2>&1; then
@@ -2955,22 +3108,16 @@ if [ "$CLEARED" != "true" ]; then
   # (quota exhausted / App not connected → a human must act) instead of
   # inferring review latency and waiting or re-triggering.
   BLOCKED_SUFFIX=""
-  if [ -n "$CODEX_BLOCKED_REASON" ]; then
+  if [ -n "$CODEX_BLOCKED_REASON" ] \
+     && { [ "$REQUIRE_CODEX_ON_HEAD" != 1 ] || [ -z "$LATEST_SIGNAL_TIME" ] \
+          || ! [[ "$LATEST_SIGNAL_TIME" > "$CODEX_BLOCKED_TIME" ]]; }; then
     BLOCKED_SUFFIX=" — NOTE: Codex reported '$CODEX_BLOCKED_REASON' @ $CODEX_BLOCKED_TIME; this is an account/connection block a human must resolve (upgrade / add credits / connect the App), not review latency — route to Phase 4b (#722)"
-    # In DIAGNOSTIC mode only, distinguish "Codex CANNOT report" from "Codex
-    # has not reported YET" with exit 2 (#842). The #814 barrier is the only
-    # caller of that mode, and it must not hold a Phase 4b run behind a Codex
-    # that is account-blocked: Phase 4b is the documented fallback for exactly
-    # that state, and the message directly above already says to route there.
-    # Holding instead made the barrier wait out its whole budget and then page
-    # a human, so the automated leg could never serve its fallback role
-    # (Codex P1 on #842).
-    #
-    # Diagnostic-only on purpose. The merge gate must keep failing closed on a
-    # block — an account-blocked Codex has cleared nothing — so exit 2 is
-    # unreachable for every real gate caller, whose exit codes stay 0/1/3.
-    if [ "$DIAGNOSTIC_SIGNAL_ONLY" = "1" ]; then
-      echo "[codex-review-check] diagnostic: Codex is account-blocked ('$CODEX_BLOCKED_REASON') — reporting CANNOT-REPORT (exit 2), not merely absent" >&2
+    # Preserve the diagnostic cannot-report result. Strict substitution also
+    # needs it after the existing request-freshness check supersedes an older
+    # head response. A newer response outranks an older resolved block above.
+    # Ordinary merge-gate callers retain their 0/1/3 contract.
+    if [ "$DIAGNOSTIC_SIGNAL_ONLY" = 1 ] || [ "$REQUIRE_CODEX_ON_HEAD" = 1 ]; then
+      echo "[codex-review-check] human_attention_required: Codex is account-blocked ('$CODEX_BLOCKED_REASON') — reporting CANNOT-REPORT (exit 2), not merely absent" >&2
       exit 2
     fi
   fi
@@ -3001,6 +3148,32 @@ if [ "$CLEARED" != "true" ]; then
 fi
 
 log "gate (c): cleared — $CLEARANCE_REASON"
+
+# The substitution auto-merge caller combines these existing strict modes.
+# Its earlier approval cannot carry a review that arrived afterward. The
+# agent's pre-approval probe omits REQUIRE_APPROVAL_ON_HEAD and then approves.
+if [ "$REQUIRE_CODEX_ON_HEAD" = 1 ] && [ "$REQUIRE_APPROVAL_ON_HEAD" = 1 ]; then
+  AUDITED_REVIEWER=$(printf '%s' "$REVIEWS_JSON" | jq -r \
+    --argjson reviewers "$REVIEWERS_JSON" --arg author "$PR_AUTHOR" \
+    --arg sha "$HEAD_SHA" --arg cleared "$LATEST_SIGNAL_TIME" '
+      def epoch: try fromdateiso8601 catch null;
+      ($cleared | epoch) as $floor
+      | [ .[]
+          | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")
+          | select(.user.login != $author and (.user.login as $u | $reviewers | index($u)))
+        ] as $opinions
+      | if all($opinions[]; (.submitted_at | epoch) != null) then $opinions
+        else error("unreadable reviewer approval timestamp") end
+      | group_by(.user.login) | map(max_by(.submitted_at))
+      | map(select(.state == "APPROVED" and .commit_id == $sha)
+          | select((.submitted_at | epoch) as $when | $floor != null and $when != null and $when > $floor)
+          | select((.body // "") | test("CodeRabbit rate-limited; cleared by Codex on `?" + $sha + "`?([.[:space:]]|$)"; "i")))
+      | first | if . == null then empty else .user.login end
+    ') || die 3 "cannot read the substitution approval audit"
+  [ -n "$AUDITED_REVIEWER" ] \
+    || fail_gate "Codex cleared this commit at $LATEST_SIGNAL_TIME; a later reviewer approval must record CodeRabbit rate-limited; cleared by Codex on $HEAD_SHA."
+  log "substitution approval: audited approval for the current commit by $AUDITED_REVIEWER after $LATEST_SIGNAL_TIME"
+fi
 
 # --- all gates pass ---------------------------------------------------------
 
